@@ -20,13 +20,17 @@ import {
 
 const navItems = [
   { href: "/events", label: "Events", icon: Inbox },
-  { href: "/data", label: "Data", icon: Table2 },
+  { href: "/data", label: "Data", icon: Table2, roles: ["SUPERADMIN"] },
   { href: "/chat", label: "Chat", icon: MessageSquare },
 ];
 
-function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+function NavContent({ onNavigate, userRole }: { onNavigate?: () => void; userRole?: string }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
+
+  const visibleNavItems = navItems.filter(
+    (item) => !item.roles || (userRole && item.roles.includes(userRole))
+  );
 
   return (
     <div className="flex flex-col h-full">
@@ -46,7 +50,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* Main nav */}
       <nav className="flex-1 px-3 space-y-1">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive =
             pathname === item.href || pathname.startsWith(item.href + "/");
@@ -116,14 +120,14 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function Nav() {
+export function Nav({ userRole }: { userRole?: string }) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex fixed inset-y-0 left-0 z-40 w-56 flex-col border-r border-sidebar-border bg-sidebar">
-        <NavContent />
+        <NavContent userRole={userRole} />
       </aside>
 
       {/* Mobile header bar */}
@@ -160,7 +164,7 @@ export function Nav() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <NavContent onNavigate={() => setMobileOpen(false)} />
+            <NavContent onNavigate={() => setMobileOpen(false)} userRole={userRole} />
           </aside>
         </div>
       )}

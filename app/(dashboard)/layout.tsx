@@ -12,7 +12,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen">
-      <Nav />
+      <Nav userRole={session.user.role} />
       <main className="md:ml-56 min-h-screen flex flex-col">{children}</main>
     </div>
   );

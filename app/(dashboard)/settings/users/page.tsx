@@ -116,6 +116,37 @@ export default function UsersPage() {
             </div>
           </div>
 
+          {/* Role capabilities info */}
+          <div className="rounded-xl border border-border p-4 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Role permissions</p>
+            {editing.role === "SUPERADMIN" && (
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Full access to all features</li>
+                <li>Access to Data browser</li>
+                <li>Can delete database records via chat</li>
+                <li>Can bulk-edit unlimited records via chat</li>
+                <li>Can configure UI pages via UI Configurator</li>
+              </ul>
+            )}
+            {editing.role === "ADMIN" && (
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Access to all events and settings</li>
+                <li>Can delete database records via chat</li>
+                <li>Can bulk-edit unlimited records via chat</li>
+                <li>Can configure UI pages via UI Configurator</li>
+              </ul>
+            )}
+            {editing.role === "MANAGER" && (
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Can view and create records via chat</li>
+                <li>Can edit up to 3 records at a time via chat</li>
+                <li>Cannot delete records</li>
+                <li>Cannot bulk-edit more than 3 records</li>
+                <li>Event visibility restricted by categories and email accounts below</li>
+              </ul>
+            )}
+          </div>
+
           {/* Permissions — only for MANAGER role */}
           {editing.role === "MANAGER" ? (
             <div className="space-y-4 rounded-xl border border-border p-4">

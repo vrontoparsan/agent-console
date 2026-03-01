@@ -11,11 +11,15 @@ const allowedTables: Record<string, boolean> = {
   AgentContext: true,
   CompanyInfo: true,
   CronJob: true,
+  EmailAccount: true,
+  UserCategoryAccess: true,
+  UserEmailAccountAccess: true,
 };
 
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.user.role !== "SUPERADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const table = req.nextUrl.searchParams.get("table") || "Event";
   const page = parseInt(req.nextUrl.searchParams.get("page") || "1");
@@ -46,10 +50,12 @@ export async function GET(req: NextRequest) {
       model.count(),
     ]);
 
-    // Exclude password hash from User table
+    // Exclude sensitive fields
     const sanitized = table === "User"
       ? data.map(({ password, ...rest }: Record<string, unknown>) => rest)
-      : data;
+      : table === "EmailAccount"
+        ? data.map(({ imapPassword, smtpPassword, ...rest }: Record<string, unknown>) => ({ ...rest, imapPassword: "***", smtpPassword: smtpPassword ? "***" : null }))
+        : data;
 
     const columns =
       sanitized.length > 0 ? Object.keys(sanitized[0]) : [];
