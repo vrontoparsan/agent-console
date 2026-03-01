@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { EventCard } from "./event-card";
 import { EventModal } from "./event-modal";
+import { NewEventForm } from "./new-event-form";
 import { Button } from "@/components/ui/button";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -47,6 +48,7 @@ export function EventList({
 }) {
   const router = useRouter();
   const [selectedEvent, setSelectedEvent] = useState<EventWithRelations | null>(null);
+  const [showNewEvent, setShowNewEvent] = useState(false);
   const totalPages = Math.ceil(total / pageSize);
 
   function setFilter(f: string) {
@@ -63,7 +65,7 @@ export function EventList({
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-lg font-semibold tracking-tight">Events</h1>
-          <Button size="sm" onClick={() => router.push("/events?new=1")}>
+          <Button size="sm" onClick={() => setShowNewEvent(true)}>
             <Plus className="h-4 w-4" />
             New Event
           </Button>
@@ -144,6 +146,11 @@ export function EventList({
           event={selectedEvent}
           onClose={() => setSelectedEvent(null)}
         />
+      )}
+
+      {/* New Event Form */}
+      {showNewEvent && (
+        <NewEventForm onClose={() => setShowNewEvent(false)} />
       )}
     </>
   );
