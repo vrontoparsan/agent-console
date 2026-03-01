@@ -8,6 +8,7 @@ import {
   Clock,
   Users,
   Mail,
+  Wand2,
 } from "lucide-react";
 
 const settingsItems = [
@@ -51,6 +52,13 @@ const settingsItems = [
     label: "Email Settings",
     description: "Email accounts for receiving events",
     icon: Mail,
+    roles: ["SUPERADMIN", "ADMIN"],
+  },
+  {
+    href: "/settings/ui-configurator",
+    label: "UI Configurator",
+    description: "Create custom UI pages with AI",
+    icon: Wand2,
     roles: ["SUPERADMIN", "ADMIN"],
   },
 ];

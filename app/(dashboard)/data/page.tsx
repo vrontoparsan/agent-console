@@ -11,7 +11,9 @@ import {
   ChevronRight,
   Search,
   Database,
+  MessageSquare,
 } from "lucide-react";
+import { AgentChat } from "@/components/custom-page/agent-chat";
 
 const tables = [
   { key: "Event", label: "Events" },
@@ -22,11 +24,14 @@ const tables = [
   { key: "AgentContext", label: "Contexts" },
   { key: "CompanyInfo", label: "Company" },
   { key: "CronJob", label: "Cron Jobs" },
+  { key: "EmailAccount", label: "Email Accounts" },
+  { key: "CustomPage", label: "Custom Pages" },
 ];
 
 type Row = Record<string, unknown>;
 
 export default function DataPage() {
+  const [mode, setMode] = useState<"browse" | "chat">("browse");
   const [selectedTable, setSelectedTable] = useState("Event");
   const [data, setData] = useState<Row[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -65,12 +70,39 @@ export default function DataPage() {
 
   const totalPages = Math.ceil(total / pageSize);
 
+  if (mode === "chat") {
+    return (
+      <div className="flex-1 flex flex-col">
+        <div className="border-b border-border px-6 py-3 flex items-center gap-3">
+          <h1 className="text-lg font-semibold tracking-tight">Data</h1>
+          <div className="flex gap-1 ml-4">
+            <button
+              onClick={() => setMode("browse")}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer"
+            >
+              <Table2 className="h-4 w-4 inline mr-1.5" />
+              Browse
+            </button>
+            <button
+              onClick={() => setMode("chat")}
+              className="px-3 py-1.5 rounded-lg text-sm font-medium bg-primary/10 text-primary transition-colors cursor-pointer"
+            >
+              <MessageSquare className="h-4 w-4 inline mr-1.5" />
+              Agent Chat
+            </button>
+          </div>
+        </div>
+        <AgentChat context="configurator" className="flex-1" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex">
       {/* Left sidebar - table list */}
       <div className="w-48 border-r border-border flex flex-col">
         <div className="px-3 py-3 border-b border-border">
-          <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />
             Tables
           </div>
@@ -105,6 +137,13 @@ export default function DataPage() {
             <Table2 className="h-4 w-4" />
             {tables.find((t) => t.key === selectedTable)?.label}
           </h2>
+          <button
+            onClick={() => setMode("chat")}
+            className="px-2.5 py-1 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer flex items-center gap-1"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Chat
+          </button>
           <form onSubmit={handleSearch} className="ml-auto flex gap-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

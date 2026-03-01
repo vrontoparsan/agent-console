@@ -199,6 +199,18 @@ model CompanyInfo {
   extra   Json?
 }
 
+model CustomPage {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  title     String
+  icon      String?
+  config    Json     @default("{}")
+  published Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model CronJob {
   id        String    @id @default(cuid())
   name      String

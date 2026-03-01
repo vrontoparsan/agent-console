@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import {
   X,
   Sun,
   Moon,
+  LayoutDashboard,
 } from "lucide-react";
 
 const navItems = [
@@ -24,7 +25,21 @@ const navItems = [
   { href: "/chat", label: "Chat", icon: MessageSquare },
 ];
 
-function NavContent({ onNavigate, userRole }: { onNavigate?: () => void; userRole?: string }) {
+type CustomPageNav = {
+  slug: string;
+  title: string;
+  icon: string | null;
+};
+
+function NavContent({
+  onNavigate,
+  userRole,
+  customPages,
+}: {
+  onNavigate?: () => void;
+  userRole?: string;
+  customPages: CustomPageNav[];
+}) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
 
@@ -49,7 +64,7 @@ function NavContent({ onNavigate, userRole }: { onNavigate?: () => void; userRol
       </Link>
 
       {/* Main nav */}
-      <nav className="flex-1 px-3 space-y-1">
+      <nav className="flex-1 px-3 space-y-1 overflow-auto">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive =
@@ -71,6 +86,36 @@ function NavContent({ onNavigate, userRole }: { onNavigate?: () => void; userRol
             </Link>
           );
         })}
+
+        {/* Custom pages separator */}
+        {customPages.length > 0 && (
+          <>
+            <div className="pt-3 pb-1 px-3">
+              <span className="text-xs font-medium text-muted-foreground/50 uppercase tracking-wider">
+                Pages
+              </span>
+            </div>
+            {customPages.map((page) => {
+              const isActive = pathname === `/p/${page.slug}`;
+              return (
+                <Link
+                  key={page.slug}
+                  href={`/p/${page.slug}`}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  )}
+                >
+                  <LayoutDashboard className="h-4 w-4" />
+                  {page.title}
+                </Link>
+              );
+            })}
+          </>
+        )}
       </nav>
 
       {/* Bottom actions */}
@@ -122,12 +167,20 @@ function NavContent({ onNavigate, userRole }: { onNavigate?: () => void; userRol
 
 export function Nav({ userRole }: { userRole?: string }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [customPages, setCustomPages] = useState<CustomPageNav[]>([]);
+
+  useEffect(() => {
+    fetch("/api/pages")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setCustomPages)
+      .catch(() => {});
+  }, []);
 
   return (
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex fixed inset-y-0 left-0 z-40 w-56 flex-col border-r border-sidebar-border bg-sidebar">
-        <NavContent userRole={userRole} />
+        <NavContent userRole={userRole} customPages={customPages} />
       </aside>
 
       {/* Mobile header bar */}
@@ -164,7 +217,11 @@ export function Nav({ userRole }: { userRole?: string }) {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <NavContent onNavigate={() => setMobileOpen(false)} userRole={userRole} />
+            <NavContent
+              onNavigate={() => setMobileOpen(false)}
+              userRole={userRole}
+              customPages={customPages}
+            />
           </aside>
         </div>
       )}
