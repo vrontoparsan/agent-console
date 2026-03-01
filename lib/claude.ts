@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_OAUTH_TOKEN,
+  authToken: process.env.ANTHROPIC_OAUTH_TOKEN,
+  defaultHeaders: {
+    "anthropic-beta": "oauth-2025-04-20",
+  },
 });
 
 export async function streamChat(
