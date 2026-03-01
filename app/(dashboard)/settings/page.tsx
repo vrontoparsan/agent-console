@@ -22,7 +22,7 @@ const settingsItems = [
   {
     href: "/settings/contexts",
     label: "Agent Contexts",
-    description: "Permanent and conditional .md contexts",
+    description: "OpenClaw .md contexts: AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, MEMORY",
     icon: FileText,
     roles: ["SUPERADMIN"],
   },

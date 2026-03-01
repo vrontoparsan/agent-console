@@ -20,15 +20,15 @@ type Context = {
 const tabs = [
   {
     key: "PERMANENT" as const,
-    label: "In each message",
-    sublabel: "OpenClaw",
-    description: "These contexts are included in every AI message. Use for company info, tone, rules.",
+    label: "Permanent",
+    sublabel: "Always",
+    description: "Included in every AI message. Standard OpenClaw contexts: AGENTS.md, SOUL.md, TOOLS.md, IDENTITY.md, USER.md.",
   },
   {
     key: "CONDITIONAL" as const,
-    label: "In case",
-    sublabel: "OpenClaw",
-    description: "These contexts are included only when relevant to a specific event or case.",
+    label: "Conditional",
+    sublabel: "When needed",
+    description: "Loaded only when relevant. OpenClaw contexts: HEARTBEAT.md (cron/scheduled), MEMORY.md (cross-session), BOOTSTRAP.md (onboarding).",
   },
 ];
 
