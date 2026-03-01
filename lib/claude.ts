@@ -9,7 +9,7 @@ export async function streamChat(
   systemPrompt?: string
 ) {
   return anthropic.messages.stream({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 4096,
     system: systemPrompt || "You are a helpful business assistant.",
     messages,
@@ -28,7 +28,7 @@ Respond in JSON format:
 [{"title": "Action title", "description": "What this action does and why"}]`;
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-sonnet-4-6",
     max_tokens: 1024,
     system: systemPrompt,
     messages: [
