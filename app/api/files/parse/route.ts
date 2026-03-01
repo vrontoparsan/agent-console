@@ -14,10 +14,15 @@ const ALLOWED_TYPES = [
   "application/vnd.ms-excel",
   "text/xml",
   "application/xml",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
 ];
 
 const ALLOWED_EXTENSIONS = [
   "pdf", "docx", "doc", "txt", "md", "csv", "xlsx", "xls", "xml",
+  "png", "jpg", "jpeg", "gif", "webp",
 ];
 
 function getExtension(filename: string): string {
@@ -72,6 +77,12 @@ async function parseFile(buffer: Buffer, filename: string): Promise<string> {
     case "md":
     case "xml":
       return buffer.toString("utf-8");
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+      return `[Image: ${filename}]`; // Images are handled via Claude vision, not text parsing
     default:
       throw new Error(`Unsupported file type: ${ext}`);
   }

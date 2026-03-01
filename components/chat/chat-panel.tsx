@@ -2,9 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "./chat-message";
-import { ChatInput } from "./chat-input";
+import { ChatInput, type AttachedFile } from "./chat-input";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Wrench } from "lucide-react";
+import { MessageSquare, Wrench, Loader2 } from "lucide-react";
 
 type Message = {
   id: string;
@@ -54,10 +54,16 @@ export function ChatPanel({
     }
   }, [messages]);
 
-  async function handleSend(content: string) {
+  async function handleSend(content: string, attachedFiles?: AttachedFile[]) {
+    // Build display content for user message
+    const fileNames = attachedFiles?.map((f) => f.name) || [];
+    const displayContent = fileNames.length > 0
+      ? `${content}\n\n📎 ${fileNames.join(", ")}`
+      : content;
+
     const userMsg: Message = {
       id: crypto.randomUUID(),
-      content,
+      content: displayContent,
       role: "user",
       createdAt: new Date().toISOString(),
     };
@@ -73,12 +79,60 @@ export function ChatPanel({
     setMessages((prev) => [...prev, assistantMsg]);
 
     try {
+      // Process file attachments
+      let fileContext = "";
+      const imageAttachments: { name: string; base64: string; mediaType: string }[] = [];
+
+      if (attachedFiles && attachedFiles.length > 0) {
+        // Separate images from documents
+        const docFiles = attachedFiles.filter((f) => f.type === "document");
+        const imgFiles = attachedFiles.filter((f) => f.type === "image");
+
+        // Parse documents via API
+        if (docFiles.length > 0) {
+          const formData = new FormData();
+          for (const f of docFiles) {
+            formData.append("files", f.file);
+          }
+          const parseRes = await fetch("/api/files/parse", { method: "POST", body: formData });
+          if (parseRes.ok) {
+            const parseData = await parseRes.json();
+            for (const f of parseData.files || []) {
+              if (f.content) {
+                fileContext += `\n\n--- File: ${f.filename} ---\n${f.content.slice(0, 30000)}`;
+              } else if (f.error) {
+                fileContext += `\n\n--- File: ${f.filename} (error: ${f.error}) ---`;
+              }
+            }
+          }
+        }
+
+        // Convert images to base64 for Claude vision
+        for (const img of imgFiles) {
+          const buffer = await img.file.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+          );
+          imageAttachments.push({
+            name: img.name,
+            base64,
+            mediaType: img.file.type,
+          });
+        }
+      }
+
+      // Build full message with file context
+      const fullMessage = fileContext
+        ? `${content}\n\n[Attached file contents:]${fileContext}`
+        : content;
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: content,
+          message: fullMessage,
           eventId: eventId || null,
+          images: imageAttachments.length > 0 ? imageAttachments : undefined,
         }),
       });
 
@@ -233,6 +287,14 @@ export function ChatPanel({
 
       {/* Input */}
       <ChatInput onSend={handleSend} disabled={streaming} />
+      {streaming && (
+        <div className="px-4 pb-1">
+          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            Processing...
+          </span>
+        </div>
+      )}
     </div>
   );
 }

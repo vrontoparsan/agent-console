@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { message, eventId } = body;
+  const { message, eventId, images } = body;
 
   if (!message) {
     return NextResponse.json({ error: "message required" }, { status: 400 });
@@ -99,10 +99,27 @@ export async function POST(req: NextRequest) {
     take: 50,
   });
 
-  const chatMessages = history.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  // Build chat messages, appending images to the last user message if present
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const chatMessages: any[] = history.map((m, idx) => {
+    const isLast = idx === history.length - 1;
+    if (isLast && m.role === "user" && images && images.length > 0) {
+      // Multi-content message with text + images
+      const content = [
+        { type: "text" as const, text: m.content },
+        ...images.map((img: { base64: string; mediaType: string }) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: img.mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+            data: img.base64,
+          },
+        })),
+      ];
+      return { role: m.role, content };
+    }
+    return { role: m.role, content: m.content };
+  });
 
   // SUPERADMIN gets agentic mode with full tools
   if (userRole === "SUPERADMIN") {
@@ -130,9 +147,21 @@ Available page component types:
 - "stats": KPI cards. Props: items (array of {label, table, where?, type: "count"})
 - "text": Static markdown. Props: content
 
+## File Attachments
+If the user sends files (documents, spreadsheets, images), their contents are included in the message.
+You can analyze images visually and parse document contents.
+When asked to import file data into the database, carefully analyze the data structure and map it to existing or new tables.
+
+## CRITICAL: Cautious Behavior
+You MUST follow these rules strictly:
+1. **Always confirm understanding** — Before executing any action, repeat back what you understood the user wants
+2. **Always ask for confirmation** — Before ANY database change (create, update, delete, import), explicitly ask "Should I proceed?"
+3. **Never assume** — If the request is ambiguous, ask clarifying questions
+4. **Show preview** — When importing data, show a sample of what will be inserted before doing it
+5. **Step by step** — For complex operations (creating sections, importing data), work step by step and confirm each step
+
 Important:
 - Use pagination for queries (limit 20 default)
-- Confirm destructive operations before executing
 - Respond in the user's language`;
 
       const encoder = new TextEncoder();
