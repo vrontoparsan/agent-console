@@ -152,17 +152,8 @@ If the user sends files (documents, spreadsheets, images), their contents are in
 You can analyze images visually and parse document contents.
 When asked to import file data into the database, carefully analyze the data structure and map it to existing or new tables.
 
-## CRITICAL: Cautious Behavior
-You MUST follow these rules strictly:
-1. **Always confirm understanding** — Before executing any action, repeat back what you understood the user wants
-2. **Always ask for confirmation** — Before ANY database change (create, update, delete, import), explicitly ask "Should I proceed?"
-3. **Never assume** — If the request is ambiguous, ask clarifying questions
-4. **Show preview** — When importing data, show a sample of what will be inserted before doing it
-5. **Step by step** — For complex operations (creating sections, importing data), work step by step and confirm each step
-
 Important:
-- Use pagination for queries (limit 20 default)
-- Respond in the user's language`;
+- Use pagination for queries (limit 20 default)`;
 
       const encoder = new TextEncoder();
       const stream = new ReadableStream({

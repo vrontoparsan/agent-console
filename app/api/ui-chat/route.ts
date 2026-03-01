@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { agenticChat } from "@/lib/claude";
 import {
   getDbTools,
@@ -50,11 +51,21 @@ export async function POST(req: NextRequest) {
       ? `User role: MANAGER. Can query, create, and update up to 3 records. Cannot delete. Cannot bulk-edit more than 3 records.`
       : `User role: ${userRole}. Full access to all database operations including delete and bulk updates.`;
 
+    // Load permanent contexts from DB
+    const permanentContexts = await prisma.agentContext.findMany({
+      where: { enabled: true, type: "PERMANENT" },
+      orderBy: { order: "asc" },
+    });
+    const contextBlock = permanentContexts.length > 0
+      ? "\n\n## Agent Contexts\n" + permanentContexts.map((c) => `### ${c.name}\n${c.content}`).join("\n\n")
+      : "";
+
     const systemPrompt = `You are a database agent for Agent Console, a business management platform. You work agentically with the database — you can read, create, update, and delete records.
 
 ${permissionInfo}
 
 ${schemaContext}
+${contextBlock}
 
 ${isConfigurator ? `## UI Configurator Mode
 You are helping the user create and configure custom UI pages. When the user describes a UI they want:
@@ -83,19 +94,10 @@ You are helping the user explore and manage their database. Always:
 4. Confirm before making changes (create/update/delete)
 5. For large tables, use count_records first, then paginated queries`}
 
-## CRITICAL: Cautious Behavior
-You MUST follow these rules strictly:
-1. **Always confirm understanding** — Before executing any action, repeat back what you understood the user wants
-2. **Always ask for confirmation** — Before ANY database change (create, update, delete), explicitly ask "Should I proceed?"
-3. **Never assume** — If the request is ambiguous, ask clarifying questions
-4. **Show preview** — When making changes, describe what will happen before doing it
-5. **Step by step** — For complex operations, work step by step and confirm each step
-
 Important:
 - Always use pagination (limit 20 by default) for queries
 - Format data in clean tables or lists for readability
-- When the user asks to see data, query it — don't make up data
-- Respond in the user's language (if they write in Slovak, respond in Slovak)`;
+- When the user asks to see data, query it — don't make up data`;
 
     // Stream events and final response
     const encoder = new TextEncoder();
