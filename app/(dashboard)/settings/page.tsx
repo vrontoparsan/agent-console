@@ -9,6 +9,7 @@ import {
   Users,
   Mail,
   Wand2,
+  HardDrive,
 } from "lucide-react";
 
 const settingsItems = [
@@ -60,6 +61,13 @@ const settingsItems = [
     description: "Create custom UI pages with AI",
     icon: Wand2,
     roles: ["SUPERADMIN", "ADMIN"],
+  },
+  {
+    href: "/settings/backup",
+    label: "Backup",
+    description: "Database backups, schedule, volume and email delivery",
+    icon: HardDrive,
+    roles: ["SUPERADMIN"],
   },
 ];
 

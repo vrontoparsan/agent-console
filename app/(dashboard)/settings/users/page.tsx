@@ -132,16 +132,19 @@ export default function UsersPage() {
                 <li>Full access to all features</li>
                 <li>Access to Data browser</li>
                 <li>Can create new sections and DB tables via Chat (agentic mode)</li>
+                <li>Can upload files in Chat and import data into database</li>
                 <li>Can execute raw SQL on custom tables</li>
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Configurator</li>
                 <li>Sees all custom pages</li>
+                <li>Access to database Backup settings</li>
               </ul>
             )}
             {editing.role === "ADMIN" && (
               <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
                 <li>Access to all events and settings</li>
+                <li>Can upload files in Chat and import data into database</li>
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Configurator</li>

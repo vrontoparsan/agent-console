@@ -1,5 +1,5 @@
 FROM node:22-bookworm-slim AS base
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl postgresql-client && rm -rf /var/lib/apt/lists/*
 
 FROM base AS deps
 WORKDIR /app
