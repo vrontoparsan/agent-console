@@ -1,9 +1,11 @@
 #!/bin/sh
 echo "=== Agent Console Starting ==="
+echo "OpenSSL version: $(openssl version 2>&1 || echo 'not found')"
 
 # Run Prisma migrations
 echo "Running database push..."
-node node_modules/prisma/build/index.js db push --skip-generate 2>&1 || echo "DB push failed (may already be up to date)"
+npx prisma db push --skip-generate 2>&1
+echo "DB push exit code: $?"
 
 # Seed database (idempotent - skips if already seeded)
 echo "Running seed..."
