@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  MANAGER
+}
+
+enum EventType {
+  PLUS
+  MINUS
+}
+
+enum EventStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  ARCHIVED
+}
+
+enum ActionStatus {
+  SUGGESTED
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+}
+
+enum ContextType {
+  PERMANENT
+  CONDITIONAL
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  role      Role     @default(MANAGER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+  events   Event[]   @relation("assignedEvents")
+}
+
+model Event {
+  id         String      @id @default(cuid())
+  title      String
+  summary    String?     @db.Text
+  rawContent String?     @db.Text
+  source     String?
+  type       EventType
+  status     EventStatus @default(NEW)
+  priority   Int         @default(0)
+  categoryId String?
+  assignedTo String?
+  metadata   Json?
+  createdAt  DateTime    @default(now())
+  resolvedAt DateTime?
+  updatedAt  DateTime    @updatedAt
+
+  category EventCategory? @relation(fields: [categoryId], references: [id])
+  assignee User?          @relation("assignedEvents", fields: [assignedTo], references: [id])
+  actions  EventAction[]
+  messages Message[]
+
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model EventCategory {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  contextMd   String? @db.Text
+  color       String?
+
+  events    Event[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model EventAction {
+  id          String       @id @default(cuid())
+  eventId     String
+  title       String
+  description String?      @db.Text
+  status      ActionStatus @default(SUGGESTED)
+  aiSuggested Boolean      @default(true)
+  result      String?      @db.Text
+  createdAt   DateTime     @default(now())
+  executedAt  DateTime?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  role      String
+  eventId   String?
+  userId    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User?  @relation(fields: [userId], references: [id])
+
+  @@index([eventId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model AgentContext {
+  id        String      @id @default(cuid())
+  name      String
+  type      ContextType
+  content   String      @db.Text
+  enabled   Boolean     @default(true)
+  order     Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model CompanyInfo {
+  id      String @id @default("default")
+  name    String @default("")
+  ico     String @default("")
+  dic     String @default("")
+  icDph   String @default("")
+  address String @default("")
+  email   String @default("")
+  phone   String @default("")
+  web     String @default("")
+  extra   Json?
+}
+
+model CronJob {
+  id        String    @id @default(cuid())
+  name      String
+  schedule  String
+  action    String    @db.Text
+  enabled   Boolean   @default(false)
+  lastRun   DateTime?
+  nextRun   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
