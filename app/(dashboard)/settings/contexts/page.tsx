@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ArrowLeft, Plus, Save, Trash2, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 type Context = {
   id: string;
@@ -16,9 +17,25 @@ type Context = {
   order: number;
 };
 
+const tabs = [
+  {
+    key: "PERMANENT" as const,
+    label: "In each message",
+    sublabel: "OpenClaw",
+    description: "These contexts are included in every AI message. Use for company info, tone, rules.",
+  },
+  {
+    key: "CONDITIONAL" as const,
+    label: "In case",
+    sublabel: "OpenClaw",
+    description: "These contexts are included only when relevant to a specific event or case.",
+  },
+];
+
 export default function ContextsPage() {
   const [contexts, setContexts] = useState<Context[]>([]);
   const [editing, setEditing] = useState<Context | null>(null);
+  const [activeTab, setActiveTab] = useState<"PERMANENT" | "CONDITIONAL">("PERMANENT");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -52,16 +69,28 @@ export default function ContextsPage() {
     loadContexts();
   }
 
+  async function handleToggle(ctx: Context) {
+    await fetch("/api/settings/contexts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...ctx, enabled: !ctx.enabled }),
+    });
+    loadContexts();
+  }
+
   function newContext() {
     setEditing({
       id: "",
       name: "",
-      type: "PERMANENT",
+      type: activeTab,
       content: "",
       enabled: true,
-      order: contexts.length,
+      order: filteredContexts.length,
     });
   }
+
+  const filteredContexts = contexts.filter((c) => c.type === activeTab);
+  const activeTabInfo = tabs.find((t) => t.key === activeTab)!;
 
   if (editing) {
     return (
@@ -73,6 +102,9 @@ export default function ContextsPage() {
           <h1 className="text-lg font-semibold">
             {editing.id ? "Edit Context" : "New Context"}
           </h1>
+          <Badge variant="secondary" className="ml-2">
+            {editing.type === "PERMANENT" ? "In each message" : "In case"}
+          </Badge>
         </div>
 
         <div className="space-y-4">
@@ -86,25 +118,6 @@ export default function ContextsPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-muted-foreground">Type</label>
-            <div className="flex gap-2">
-              {(["PERMANENT", "CONDITIONAL"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setEditing({ ...editing, type: t })}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
-                    editing.type === t
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-accent"
-                  }`}
-                >
-                  {t === "PERMANENT" ? "Permanent" : "Conditional"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
             <label className="text-sm font-medium text-muted-foreground">
               Content (Markdown)
             </label>
@@ -113,10 +126,30 @@ export default function ContextsPage() {
               onChange={(e) =>
                 setEditing({ ...editing, content: e.target.value })
               }
-              rows={12}
+              rows={14}
               className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-y"
               placeholder="# Agent Context&#10;&#10;Write markdown instructions..."
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditing({ ...editing, enabled: !editing.enabled })}
+              className={cn(
+                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                editing.enabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                  editing.enabled ? "translate-x-4.5" : "translate-x-0.5"
+                )}
+              />
+            </button>
+            <span className="text-sm text-muted-foreground">
+              {editing.enabled ? "Enabled" : "Disabled"}
+            </span>
           </div>
 
           <Button onClick={handleSave} disabled={saving || !editing.name} className="w-full">
@@ -137,7 +170,36 @@ export default function ContextsPage() {
           </Button>
         </Link>
         <h1 className="text-lg font-semibold tracking-tight">Agent Contexts</h1>
-        <Button size="sm" className="ml-auto" onClick={newContext}>
+      </div>
+
+      {/* Subtabs */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={cn(
+              "px-4 py-2.5 text-sm font-medium transition-colors relative cursor-pointer",
+              activeTab === tab.key
+                ? "text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span>{tab.label}</span>
+            <span className="text-xs text-muted-foreground/60 ml-1.5">({tab.sublabel})</span>
+            {activeTab === tab.key && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab description */}
+      <p className="text-sm text-muted-foreground mb-4">{activeTabInfo.description}</p>
+
+      {/* Add button */}
+      <div className="flex justify-end mb-4">
+        <Button size="sm" onClick={newContext}>
           <Plus className="h-4 w-4" />
           New
         </Button>
@@ -147,32 +209,41 @@ export default function ContextsPage() {
         <div className="flex justify-center py-8">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-      ) : contexts.length === 0 ? (
+      ) : filteredContexts.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">
-          No contexts yet. Create one to enhance AI responses.
+          No {activeTab === "PERMANENT" ? "permanent" : "case"} contexts yet.
         </p>
       ) : (
         <div className="space-y-2">
-          {contexts.map((ctx) => (
+          {filteredContexts.map((ctx) => (
             <div
               key={ctx.id}
               className="flex items-center gap-3 rounded-xl border border-border p-4 hover:bg-accent/30 cursor-pointer transition-colors"
               onClick={() => setEditing(ctx)}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{ctx.name}</span>
-                  <Badge
-                    variant={ctx.type === "PERMANENT" ? "default" : "secondary"}
-                  >
-                    {ctx.type === "PERMANENT" ? "Permanent" : "Conditional"}
-                  </Badge>
-                  {!ctx.enabled && (
-                    <Badge variant="outline">Disabled</Badge>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggle(ctx);
+                }}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer",
+                  ctx.enabled ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    ctx.enabled ? "translate-x-4.5" : "translate-x-0.5"
                   )}
-                </div>
+                />
+              </button>
+              <div className="flex-1 min-w-0">
+                <span className={cn("text-sm font-medium", !ctx.enabled && "text-muted-foreground")}>
+                  {ctx.name}
+                </span>
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  {ctx.content.slice(0, 80)}...
+                  {ctx.content.slice(0, 100)}{ctx.content.length > 100 ? "..." : ""}
                 </p>
               </div>
               <Button
@@ -182,7 +253,7 @@ export default function ContextsPage() {
                   e.stopPropagation();
                   handleDelete(ctx.id);
                 }}
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-destructive shrink-0"
               >
                 <Trash2 className="h-4 w-4" />
               </Button>

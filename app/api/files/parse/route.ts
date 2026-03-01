@@ -25,19 +25,22 @@ function getExtension(filename: string): string {
 }
 
 async function parsePdf(buffer: Buffer): Promise<string> {
-  const pdfParse = (await import("pdf-parse")).default;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require("pdf-parse");
   const data = await pdfParse(buffer);
   return data.text;
 }
 
 async function parseDocx(buffer: Buffer): Promise<string> {
-  const mammoth = await import("mammoth");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mammoth = require("mammoth");
   const result = await mammoth.extractRawText({ buffer });
   return result.value;
 }
 
-async function parseXlsx(buffer: Buffer, ext: string): Promise<string> {
-  const XLSX = await import("xlsx");
+async function parseXlsx(buffer: Buffer): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require("xlsx");
   const workbook = XLSX.read(buffer, { type: "buffer" });
   const lines: string[] = [];
 
@@ -64,7 +67,7 @@ async function parseFile(buffer: Buffer, filename: string): Promise<string> {
     case "xlsx":
     case "xls":
     case "csv":
-      return parseXlsx(buffer, ext);
+      return parseXlsx(buffer);
     case "txt":
     case "md":
     case "xml":
