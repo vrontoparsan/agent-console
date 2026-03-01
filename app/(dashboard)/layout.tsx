@@ -11,9 +11,9 @@ export default async function DashboardLayout({
   if (!session?.user) redirect("/login");
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen">
       <Nav />
-      <main className="flex-1 flex flex-col">{children}</main>
+      <main className="md:ml-56 min-h-screen flex flex-col">{children}</main>
     </div>
   );
 }
