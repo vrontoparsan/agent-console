@@ -82,7 +82,11 @@ export function ChatPanel({
         }),
       });
 
-      if (!res.ok || !res.body) throw new Error("Chat failed");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.detail || errData?.error || "Chat failed");
+      }
+      if (!res.body) throw new Error("No response body");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -103,12 +107,13 @@ export function ChatPanel({
           return updated;
         });
       }
-    } catch {
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Unknown error";
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
           ...updated[updated.length - 1],
-          content: "Sorry, an error occurred. Please try again.",
+          content: `Error: ${errorMsg}`,
         };
         return updated;
       });

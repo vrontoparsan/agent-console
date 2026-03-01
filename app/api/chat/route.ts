@@ -91,44 +91,54 @@ export async function POST(req: NextRequest) {
   }));
 
   // Stream response
-  const stream = await streamChat(chatMessages, systemPrompt);
+  try {
+    const stream = await streamChat(chatMessages, systemPrompt);
 
-  let fullResponse = "";
+    let fullResponse = "";
 
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text;
-            fullResponse += text;
-            controller.enqueue(new TextEncoder().encode(text));
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const event of stream) {
+            if (
+              event.type === "content_block_delta" &&
+              event.delta.type === "text_delta"
+            ) {
+              const text = event.delta.text;
+              fullResponse += text;
+              controller.enqueue(new TextEncoder().encode(text));
+            }
           }
+
+          // Save assistant message
+          await prisma.message.create({
+            data: {
+              content: fullResponse,
+              role: "assistant",
+              eventId: eventId || null,
+            },
+          });
+
+          controller.close();
+        } catch (error) {
+          console.error("Stream error:", error);
+          controller.error(error);
         }
+      },
+    });
 
-        // Save assistant message
-        await prisma.message.create({
-          data: {
-            content: fullResponse,
-            role: "assistant",
-            eventId: eventId || null,
-          },
-        });
-
-        controller.close();
-      } catch (error) {
-        controller.error(error);
-      }
-    },
-  });
-
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
-    },
-  });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+      },
+    });
+  } catch (error) {
+    console.error("Chat API error:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      { error: "Chat failed", detail: msg },
+      { status: 500 }
+    );
+  }
 }
