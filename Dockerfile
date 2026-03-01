@@ -22,12 +22,16 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 COPY --from=builder /app/public ./public
+# Copy full node_modules first (ensures all prisma CLI transitive deps are present)
+COPY --from=deps /app/node_modules ./node_modules
+# Copy standalone output on top (its node_modules merges/overrides)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
+# Copy generated Prisma client (after standalone to ensure not overwritten)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=deps /app/node_modules/prisma ./node_modules/prisma
+COPY seed.js ./seed.js
 COPY start.sh ./start.sh
 RUN chmod +x start.sh
 
