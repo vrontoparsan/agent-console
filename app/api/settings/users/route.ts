@@ -18,6 +18,7 @@ export async function GET() {
       createdAt: true,
       categoryAccess: { select: { categoryId: true } },
       emailAccountAccess: { select: { emailAccountId: true } },
+      pageAccess: { select: { pageId: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -26,8 +27,10 @@ export async function GET() {
     ...u,
     categoryIds: u.categoryAccess.map((a) => a.categoryId),
     emailAccountIds: u.emailAccountAccess.map((a) => a.emailAccountId),
+    pageIds: u.pageAccess.map((a) => a.pageId),
     categoryAccess: undefined,
     emailAccountAccess: undefined,
+    pageAccess: undefined,
   }));
   return NextResponse.json(mapped);
 }
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { email, name, password, role, categoryIds, emailAccountIds } = await req.json();
+  const { email, name, password, role, categoryIds, emailAccountIds, pageIds } = await req.json();
   if (!email || !name || !password) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
@@ -56,6 +59,9 @@ export async function POST(req: NextRequest) {
       emailAccountAccess: emailAccountIds?.length
         ? { create: emailAccountIds.map((eid: string) => ({ emailAccountId: eid })) }
         : undefined,
+      pageAccess: pageIds?.length
+        ? { create: pageIds.map((pid: string) => ({ pageId: pid })) }
+        : undefined,
     },
     select: { id: true, email: true, name: true, role: true },
   });
@@ -68,7 +74,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { id, email, name, password, role, categoryIds, emailAccountIds } = await req.json();
+  const { id, email, name, password, role, categoryIds, emailAccountIds, pageIds } = await req.json();
   const data: Record<string, unknown> = { email, name, role };
   if (password) data.password = await hash(password, 12);
 
@@ -96,6 +102,16 @@ export async function PUT(req: NextRequest) {
       if (emailAccountIds.length > 0) {
         await tx.userEmailAccountAccess.createMany({
           data: emailAccountIds.map((eid: string) => ({ userId: id, emailAccountId: eid })),
+        });
+      }
+    }
+
+    // Sync page access
+    if (pageIds !== undefined) {
+      await tx.userPageAccess.deleteMany({ where: { userId: id } });
+      if (pageIds.length > 0) {
+        await tx.userPageAccess.createMany({
+          data: pageIds.map((pid: string) => ({ userId: id, pageId: pid })),
         });
       }
     }

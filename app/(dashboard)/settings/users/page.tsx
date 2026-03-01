@@ -14,12 +14,14 @@ type User = {
   role: "SUPERADMIN" | "ADMIN" | "MANAGER";
   categoryIds: string[];
   emailAccountIds: string[];
+  pageIds: string[];
 };
 
 type EditUser = User & { password?: string };
 
 type Category = { id: string; name: string };
 type EmailAccount = { id: string; label: string; email: string };
+type CustomPageInfo = { id: string; title: string; slug: string };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -28,6 +30,7 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
+  const [customPages, setCustomPages] = useState<CustomPageInfo[]>([]);
 
   useEffect(() => { loadUsers(); loadOptions(); }, []);
 
@@ -39,12 +42,17 @@ export default function UsersPage() {
   }
 
   async function loadOptions() {
-    const [catRes, emailRes] = await Promise.all([
+    const [catRes, emailRes, pagesRes] = await Promise.all([
       fetch("/api/settings/event-categories"),
       fetch("/api/settings/email-accounts"),
+      fetch("/api/data?table=CustomPage&page=1&pageSize=100&search="),
     ]);
     if (catRes.ok) setCategories(await catRes.json());
     if (emailRes.ok) setEmailAccounts(await emailRes.json());
+    if (pagesRes.ok) {
+      const result = await pagesRes.json();
+      setCustomPages((result.data || []).map((p: Record<string, unknown>) => ({ id: p.id, title: p.title, slug: p.slug })));
+    }
   }
 
   async function handleSave() {
@@ -123,9 +131,12 @@ export default function UsersPage() {
               <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
                 <li>Full access to all features</li>
                 <li>Access to Data browser</li>
+                <li>Can create new sections and DB tables via Chat (agentic mode)</li>
+                <li>Can execute raw SQL on custom tables</li>
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Configurator</li>
+                <li>Sees all custom pages</li>
               </ul>
             )}
             {editing.role === "ADMIN" && (
@@ -134,6 +145,7 @@ export default function UsersPage() {
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Configurator</li>
+                <li>Sees all custom pages</li>
               </ul>
             )}
             {editing.role === "MANAGER" && (
@@ -143,6 +155,7 @@ export default function UsersPage() {
                 <li>Cannot delete records</li>
                 <li>Cannot bulk-edit more than 3 records</li>
                 <li>Event visibility restricted by categories and email accounts below</li>
+                <li>Custom page access restricted to assigned pages below</li>
               </ul>
             )}
           </div>
@@ -224,10 +237,43 @@ export default function UsersPage() {
                   </div>
                 </div>
               )}
+              {customPages.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Custom Pages
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {customPages.map((page) => {
+                      const checked = editing.pageIds?.includes(page.id);
+                      return (
+                        <button
+                          key={page.id}
+                          onClick={() => {
+                            const ids = editing.pageIds || [];
+                            setEditing({
+                              ...editing,
+                              pageIds: checked
+                                ? ids.filter((i) => i !== page.id)
+                                : [...ids, page.id],
+                            });
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            checked
+                              ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                              : "bg-accent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {page.title}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-xs text-muted-foreground italic">
-              {editing.role} sees all events — permissions apply to MANAGER role only.
+              {editing.role} sees all events and custom pages — permissions apply to MANAGER role only.
             </p>
           )}
 
@@ -245,7 +291,7 @@ export default function UsersPage() {
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
         <h1 className="text-lg font-semibold tracking-tight">Users</h1>
-        <Button size="sm" className="ml-auto" onClick={() => setEditing({ id: "", email: "", name: "", role: "MANAGER", password: "", categoryIds: [], emailAccountIds: [] })}>
+        <Button size="sm" className="ml-auto" onClick={() => setEditing({ id: "", email: "", name: "", role: "MANAGER", password: "", categoryIds: [], emailAccountIds: [], pageIds: [] })}>
           <Plus className="h-4 w-4" /> New User
         </Button>
       </div>

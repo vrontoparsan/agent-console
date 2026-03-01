@@ -14,6 +14,8 @@ const allowedTables: Record<string, boolean> = {
   EmailAccount: true,
   UserCategoryAccess: true,
   UserEmailAccountAccess: true,
+  CustomPage: true,
+  UserPageAccess: true,
 };
 
 export async function GET(req: NextRequest) {
@@ -27,6 +29,28 @@ export async function GET(req: NextRequest) {
     parseInt(req.nextUrl.searchParams.get("pageSize") || "25"),
     100
   );
+
+  // Allow custom_ tables via raw SQL
+  if (table.startsWith("custom_")) {
+    try {
+      const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        `SELECT count(*)::bigint as count FROM "${table}"`
+      );
+      const total = Number(countResult[0]?.count || 0);
+
+      const data = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+        `SELECT * FROM "${table}" ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
+      );
+
+      const columns = data.length > 0 ? Object.keys(data[0]) : [];
+      return NextResponse.json({ data, columns, total });
+    } catch (error) {
+      return NextResponse.json(
+        { error: "Failed to query custom table", detail: String(error) },
+        { status: 500 }
+      );
+    }
+  }
 
   if (!allowedTables[table]) {
     return NextResponse.json({ error: "Invalid table" }, { status: 400 });

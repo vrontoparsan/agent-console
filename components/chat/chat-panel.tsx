@@ -3,15 +3,15 @@
 import { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Wrench } from "lucide-react";
 
 type Message = {
   id: string;
   content: string;
   role: "user" | "assistant";
   createdAt: string;
+  toolEvents?: string[];
 };
 
 export function ChatPanel({
@@ -91,21 +91,69 @@ export function ChatPanel({
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "";
+      let buffer = "";
+      let isAgentic = false;
+      const toolEvents: string[] = [];
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        fullText += chunk;
-        setMessages((prev) => {
-          const updated = [...prev];
-          updated[updated.length - 1] = {
-            ...updated[updated.length - 1],
-            content: fullText,
-          };
-          return updated;
-        });
+
+        // Detect agentic format on first chunk
+        if (!isAgentic && !fullText && (chunk.startsWith("event:") || chunk.startsWith("result:"))) {
+          isAgentic = true;
+        }
+
+        if (isAgentic) {
+          buffer += chunk;
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              try {
+                const evt = JSON.parse(line.slice(6));
+                toolEvents.push(evt.data || evt.type);
+              } catch { /* skip */ }
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  toolEvents: [...toolEvents],
+                };
+                return updated;
+              });
+            } else if (line.startsWith("result:")) {
+              fullText = line.slice(7);
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = {
+                  ...updated[updated.length - 1],
+                  content: fullText,
+                  toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined,
+                };
+                return updated;
+              });
+            } else if (line.startsWith("error:")) {
+              fullText = `Error: ${line.slice(6)}`;
+              setMessages((prev) => {
+                const updated = [...prev];
+                updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullText };
+                return updated;
+              });
+            }
+          }
+        } else {
+          // Plain text streaming (non-agentic)
+          fullText += chunk;
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { ...updated[updated.length - 1], content: fullText };
+            return updated;
+          });
+        }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown error";
@@ -166,7 +214,19 @@ export function ChatPanel({
           </div>
         ) : (
           messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} />
+            <div key={msg.id}>
+              {msg.toolEvents && msg.toolEvents.length > 0 && msg.role === "assistant" && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {msg.toolEvents.map((evt, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent text-[10px] text-muted-foreground">
+                      <Wrench className="h-2.5 w-2.5" />
+                      {evt.length > 60 ? evt.slice(0, 60) + "..." : evt}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <ChatMessage message={msg} />
+            </div>
           ))
         )}
       </div>

@@ -1,7 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { streamChat } from "@/lib/claude";
+import { streamChat, agenticChat } from "@/lib/claude";
+import {
+  getDbTools,
+  getPageTools,
+  getSqlTools,
+  executeDbTool,
+  executePageTool,
+  executeSqlTool,
+  getSchemaContext,
+} from "@/lib/agent-tools/db-tools";
+
+export const runtime = "nodejs";
+export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -18,28 +30,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ messages });
 }
 
-export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const body = await req.json();
-  const { message, eventId } = body;
-
-  if (!message) {
-    return NextResponse.json({ error: "message required" }, { status: 400 });
-  }
-
-  // Save user message
-  await prisma.message.create({
-    data: {
-      content: message,
-      role: "user",
-      eventId: eventId || null,
-      userId: session.user.id,
-    },
-  });
-
-  // Build context
+async function buildSystemPrompt(eventId: string | null): Promise<string> {
   let systemPrompt = "You are a helpful business assistant in Agent Console.";
 
   // Load permanent contexts
@@ -48,8 +39,7 @@ export async function POST(req: NextRequest) {
     orderBy: { order: "asc" },
   });
   if (contexts.length > 0) {
-    systemPrompt +=
-      "\n\n" + contexts.map((c) => c.content).join("\n\n");
+    systemPrompt += "\n\n" + contexts.map((c) => c.content).join("\n\n");
   }
 
   // Load event context if event chat
@@ -61,22 +51,46 @@ export async function POST(req: NextRequest) {
     if (event) {
       systemPrompt += `\n\nYou are discussing event: "${event.title}"`;
       if (event.summary) systemPrompt += `\nSummary: ${event.summary}`;
-      if (event.rawContent)
-        systemPrompt += `\nOriginal content:\n${event.rawContent}`;
-      if (event.category?.contextMd)
-        systemPrompt += `\n\nCategory context:\n${event.category.contextMd}`;
+      if (event.rawContent) systemPrompt += `\nOriginal content:\n${event.rawContent}`;
+      if (event.category?.contextMd) systemPrompt += `\n\nCategory context:\n${event.category.contextMd}`;
     }
   }
 
   // Load company info
-  const company = await prisma.companyInfo.findUnique({
-    where: { id: "default" },
-  });
+  const company = await prisma.companyInfo.findUnique({ where: { id: "default" } });
   if (company && company.name) {
     systemPrompt += `\n\nCompany: ${company.name}`;
     if (company.ico) systemPrompt += `, ICO: ${company.ico}`;
     if (company.dic) systemPrompt += `, DIC: ${company.dic}`;
   }
+
+  return systemPrompt;
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json();
+  const { message, eventId } = body;
+
+  if (!message) {
+    return NextResponse.json({ error: "message required" }, { status: 400 });
+  }
+
+  const userRole = session.user.role;
+
+  // Save user message
+  await prisma.message.create({
+    data: {
+      content: message,
+      role: "user",
+      eventId: eventId || null,
+      userId: session.user.id,
+    },
+  });
+
+  const basePrompt = await buildSystemPrompt(eventId);
 
   // Get chat history
   const history = await prisma.message.findMany({
@@ -90,33 +104,104 @@ export async function POST(req: NextRequest) {
     content: m.content,
   }));
 
-  // Stream response
-  try {
-    const stream = await streamChat(chatMessages, systemPrompt);
+  // SUPERADMIN gets agentic mode with full tools
+  if (userRole === "SUPERADMIN") {
+    try {
+      const schemaContext = await getSchemaContext();
+      const tools = [...getDbTools(), ...getPageTools(), ...getSqlTools()];
 
+      const systemPrompt = `${basePrompt}
+
+You are also an agent that can work with the database and create custom UI pages/sections.
+
+${schemaContext}
+
+User role: SUPERADMIN. Full access to all operations.
+
+When the user asks to create a new section (e.g. "Orders overview", "Vacations"):
+1. Create the custom database table with execute_sql (prefix with "custom_", include id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())
+2. Create a custom page with appropriate components (data-table, form, stats) pointing to the new table
+3. Publish the page so it appears in the sidebar
+4. Explain what was created
+
+Available page component types:
+- "data-table": Sortable, filterable, paginated table. Props: table (DB table name), columns (array of {key, label, sortable?}), filters, pageSize, actions
+- "form": Input form. Props: table, fields (array of {key, label, type, options?, required?})
+- "stats": KPI cards. Props: items (array of {label, table, where?, type: "count"})
+- "text": Static markdown. Props: content
+
+Important:
+- Use pagination for queries (limit 20 default)
+- Confirm destructive operations before executing
+- Respond in the user's language`;
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            const result = await agenticChat({
+              messages: chatMessages,
+              systemPrompt,
+              tools,
+              executeTool: async (name, input) => {
+                if (["query_data", "count_records", "create_record", "update_records", "delete_records"].includes(name)) {
+                  return executeDbTool(name, input, userRole);
+                }
+                if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
+                  return executePageTool(name, input);
+                }
+                if (name === "execute_sql") {
+                  return executeSqlTool(input, userRole);
+                }
+                return `Error: Unknown tool "${name}"`;
+              },
+              onEvent: (event) => {
+                controller.enqueue(encoder.encode(`event:${JSON.stringify(event)}\n`));
+              },
+            });
+
+            // Save assistant message
+            await prisma.message.create({
+              data: { content: result, role: "assistant", eventId: eventId || null },
+            });
+
+            controller.enqueue(encoder.encode(`result:${result}\n`));
+            controller.close();
+          } catch (err) {
+            controller.enqueue(encoder.encode(`error:${err instanceof Error ? err.message : "Unknown error"}\n`));
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "Transfer-Encoding": "chunked" },
+      });
+    } catch (error) {
+      console.error("Agentic chat error:", error);
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      return NextResponse.json({ error: "Chat failed", detail: msg }, { status: 500 });
+    }
+  }
+
+  // Non-SUPERADMIN: regular streaming chat
+  try {
+    const stream = await streamChat(chatMessages, basePrompt);
     let fullResponse = "";
 
     const readable = new ReadableStream({
       async start(controller) {
         try {
           for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
+            if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
               const text = event.delta.text;
               fullResponse += text;
               controller.enqueue(new TextEncoder().encode(text));
             }
           }
 
-          // Save assistant message
           await prisma.message.create({
-            data: {
-              content: fullResponse,
-              role: "assistant",
-              eventId: eventId || null,
-            },
+            data: { content: fullResponse, role: "assistant", eventId: eventId || null },
           });
 
           controller.close();
@@ -128,17 +213,11 @@ export async function POST(req: NextRequest) {
     });
 
     return new Response(readable, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Transfer-Encoding": "chunked",
-      },
+      headers: { "Content-Type": "text/plain; charset=utf-8", "Transfer-Encoding": "chunked" },
     });
   } catch (error) {
     console.error("Chat API error:", error);
     const msg = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json(
-      { error: "Chat failed", detail: msg },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Chat failed", detail: msg }, { status: 500 });
   }
 }

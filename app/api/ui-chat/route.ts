@@ -4,8 +4,10 @@ import { agenticChat } from "@/lib/claude";
 import {
   getDbTools,
   getPageTools,
+  getSqlTools,
   executeDbTool,
   executePageTool,
+  executeSqlTool,
   getSchemaContext,
 } from "@/lib/agent-tools/db-tools";
 
@@ -36,8 +38,11 @@ export async function POST(req: NextRequest) {
 
     // Build tools based on context
     const tools = [...getDbTools()];
-    if (isConfigurator) {
+    if (isConfigurator || context === "page-editor") {
       tools.push(...getPageTools());
+    }
+    if (userRole === "SUPERADMIN") {
+      tools.push(...getSqlTools());
     }
 
     // Build permission info
@@ -64,7 +69,13 @@ Available component types for pages:
 - "text": Static markdown content block
 
 When creating pages, use clear slugs, descriptive titles, and appropriate Lucide icon names.
-After creating or updating a page, inform the user it will appear in the left sidebar menu.` : `## Data Chat Mode
+After creating or updating a page, inform the user it will appear in the left sidebar menu.
+
+${userRole === "SUPERADMIN" ? `You also have the execute_sql tool to create custom database tables. When the user asks for a new section (e.g. "Orders overview", "Vacations"):
+1. Create the custom database table with execute_sql (prefix with "custom_", include id, created_at, updated_at)
+2. Create a custom page with appropriate components (data-table, form, stats) pointing to the new table
+3. The data-table component can query custom tables — set the "table" prop to the custom table name
+4. Publish the page so it appears in the sidebar` : ""}` : `## Data Chat Mode
 You are helping the user explore and manage their database. Always:
 1. Start by understanding what the user needs
 2. Use query_data with appropriate filters and limits (never dump entire tables)
@@ -94,6 +105,9 @@ Important:
               }
               if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
                 return executePageTool(name, input);
+              }
+              if (name === "execute_sql") {
+                return executeSqlTool(input, userRole);
               }
               return `Error: Unknown tool "${name}"`;
             },

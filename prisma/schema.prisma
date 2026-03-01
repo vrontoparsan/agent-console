@@ -52,6 +52,7 @@ model User {
   events             Event[]                  @relation("assignedEvents")
   categoryAccess     UserCategoryAccess[]
   emailAccountAccess UserEmailAccountAccess[]
+  pageAccess         UserPageAccess[]
 }
 
 model Event {
@@ -209,6 +210,20 @@ model CustomPage {
   order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  userAccess UserPageAccess[]
+}
+
+model UserPageAccess {
+  id     String @id @default(cuid())
+  userId String
+  pageId String
+
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  page CustomPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageId])
+  @@index([userId])
 }
 
 model CronJob {

@@ -377,6 +377,85 @@ export async function executePageTool(
   }
 }
 
+export function getSqlTools(): Tool[] {
+  return [
+    {
+      name: "execute_sql",
+      description: `Execute raw SQL against the database. SUPERADMIN only. Use for:
+- CREATE TABLE: Create new custom tables for custom page sections (e.g. orders, vacations)
+- ALTER TABLE: Add/modify columns on existing custom tables
+- INSERT INTO: Seed initial data into custom tables
+- SELECT: Query custom tables that are not Prisma models
+- UPDATE/DELETE: Modify data in custom tables
+
+Rules:
+- Never modify core Prisma-managed tables (User, Event, EventCategory, EmailAccount, etc.)
+- Table names for custom tables should be prefixed with "custom_" (e.g. custom_orders, custom_vacations)
+- Always use snake_case for column names
+- Include id (TEXT PRIMARY KEY), created_at (TIMESTAMPTZ DEFAULT NOW()), updated_at (TIMESTAMPTZ DEFAULT NOW()) in every new table
+- Use standard PostgreSQL types: TEXT, INTEGER, NUMERIC, BOOLEAN, TIMESTAMPTZ, JSONB`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          sql: { type: "string", description: "The SQL statement to execute" },
+          params: {
+            type: "array",
+            description: "Optional positional parameters for $1, $2, etc.",
+            items: {},
+          },
+        },
+        required: ["sql"],
+      },
+    },
+  ];
+}
+
+const CORE_TABLES = [
+  "user", "event", "eventcategory", "emailaccount", "usercategoryaccess",
+  "useremailaccountaccess", "userpageaccess", "eventaction", "message",
+  "agentcontext", "companyinfo", "custompage", "cronjob",
+  "_prisma_migrations",
+];
+
+export async function executeSqlTool(
+  input: Record<string, unknown>,
+  userRole: string
+): Promise<string> {
+  if (userRole !== "SUPERADMIN") {
+    return "Error: Only SUPERADMIN can execute raw SQL.";
+  }
+
+  const sql = (input.sql as string).trim();
+  const params = (input.params as unknown[]) || [];
+
+  // Block modifications to core tables
+  const sqlLower = sql.toLowerCase();
+  const isDDL = sqlLower.startsWith("alter table") || sqlLower.startsWith("drop table") || sqlLower.startsWith("truncate");
+  if (isDDL) {
+    // Extract table name from DDL
+    const tableMatch = sqlLower.match(/(?:alter|drop|truncate)\s+table\s+(?:if\s+exists\s+)?["']?(\w+)["']?/);
+    if (tableMatch) {
+      const tableName = tableMatch[1].toLowerCase();
+      if (!tableName.startsWith("custom_") && CORE_TABLES.includes(tableName)) {
+        return `Error: Cannot modify core table "${tableMatch[1]}". Only tables prefixed with "custom_" can be altered/dropped.`;
+      }
+    }
+  }
+
+  try {
+    if (sqlLower.startsWith("select") || sqlLower.startsWith("with")) {
+      const result = await prisma.$queryRawUnsafe(sql, ...params);
+      const rows = result as Record<string, unknown>[];
+      return JSON.stringify({ rows: rows.slice(0, 100), count: rows.length }, null, 2);
+    } else {
+      const result = await prisma.$executeRawUnsafe(sql, ...params);
+      return JSON.stringify({ affected: result, sql: sql.slice(0, 200) });
+    }
+  } catch (err) {
+    return `SQL Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 export async function getSchemaContext(): Promise<string> {
   // Read prisma schema
   let schema = "";
@@ -397,6 +476,31 @@ export async function getSchemaContext(): Promise<string> {
     }
   }
 
+  // Discover custom tables (created via execute_sql)
+  let customTables = "";
+  try {
+    const tables = await prisma.$queryRawUnsafe<{ table_name: string; column_name: string; data_type: string }[]>(
+      `SELECT t.table_name, c.column_name, c.data_type
+       FROM information_schema.tables t
+       JOIN information_schema.columns c ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+       WHERE t.table_schema = 'public' AND t.table_name LIKE 'custom_%'
+       ORDER BY t.table_name, c.ordinal_position`
+    );
+    if (tables.length > 0) {
+      const grouped: Record<string, { column_name: string; data_type: string }[]> = {};
+      for (const row of tables) {
+        if (!grouped[row.table_name]) grouped[row.table_name] = [];
+        grouped[row.table_name].push({ column_name: row.column_name, data_type: row.data_type });
+      }
+      customTables = "\n\n## Custom Tables (created dynamically)\n" +
+        Object.entries(grouped).map(([table, cols]) =>
+          `### ${table}\n${cols.map((c) => `- ${c.column_name}: ${c.data_type}`).join("\n")}`
+        ).join("\n\n");
+    }
+  } catch {
+    // Ignore — custom tables query may fail
+  }
+
   return `## Database Schema (Prisma)
 
 \`\`\`prisma
@@ -404,5 +508,5 @@ ${schema}
 \`\`\`
 
 ## Table Statistics
-${Object.entries(counts).map(([name, count]) => `- ${name}: ${count >= 0 ? count : "error"} rows`).join("\n")}`;
+${Object.entries(counts).map(([name, count]) => `- ${name}: ${count >= 0 ? count : "error"} rows`).join("\n")}${customTables}`;
 }
