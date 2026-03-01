@@ -13,6 +13,7 @@ import {
   Check,
   X,
   Loader2,
+  Mail,
 } from "lucide-react";
 
 type EventModalProps = {
@@ -25,9 +26,12 @@ type EventModalProps = {
     type: "PLUS" | "MINUS";
     status: string;
     priority: number;
+    senderEmail: string | null;
+    senderName: string | null;
     metadata: Record<string, unknown> | null;
     createdAt: string;
     category: { id: string; name: string; color: string | null } | null;
+    emailAccount: { id: string; label: string; email: string } | null;
     actions: {
       id: string;
       title: string;
@@ -91,6 +95,24 @@ export function EventModal({ event, onClose }: EventModalProps) {
         <div className="flex-1 border-r border-border overflow-auto">
           <ScrollArea className="h-full">
             <div className="p-6 space-y-6">
+              {/* Email Source */}
+              {event.emailAccount && (
+                <section className="flex items-start gap-3 rounded-lg border border-border bg-card p-4">
+                  <Mail className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                  <div className="space-y-1 text-sm">
+                    <p className="font-medium">{event.emailAccount.label}</p>
+                    <p className="text-muted-foreground text-xs">
+                      Received via {event.emailAccount.email}
+                    </p>
+                    {(event.senderName || event.senderEmail) && (
+                      <p className="text-muted-foreground text-xs">
+                        From: {event.senderName}{event.senderName && event.senderEmail ? " " : ""}{event.senderEmail && <span className="font-mono">&lt;{event.senderEmail}&gt;</span>}
+                      </p>
+                    )}
+                  </div>
+                </section>
+              )}
+
               {/* Summary */}
               {event.summary && (
                 <section>

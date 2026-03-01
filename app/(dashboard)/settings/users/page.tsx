@@ -12,23 +12,39 @@ type User = {
   email: string;
   name: string;
   role: "SUPERADMIN" | "ADMIN" | "MANAGER";
+  categoryIds: string[];
+  emailAccountIds: string[];
 };
 
 type EditUser = User & { password?: string };
+
+type Category = { id: string; name: string };
+type EmailAccount = { id: string; label: string; email: string };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [editing, setEditing] = useState<EditUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [emailAccounts, setEmailAccounts] = useState<EmailAccount[]>([]);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => { loadUsers(); loadOptions(); }, []);
 
   async function loadUsers() {
     setLoading(true);
     const res = await fetch("/api/settings/users");
     if (res.ok) setUsers(await res.json());
     setLoading(false);
+  }
+
+  async function loadOptions() {
+    const [catRes, emailRes] = await Promise.all([
+      fetch("/api/settings/event-categories"),
+      fetch("/api/settings/email-accounts"),
+    ]);
+    if (catRes.ok) setCategories(await catRes.json());
+    if (emailRes.ok) setEmailAccounts(await emailRes.json());
   }
 
   async function handleSave() {
@@ -100,6 +116,90 @@ export default function UsersPage() {
             </div>
           </div>
 
+          {/* Permissions — only for MANAGER role */}
+          {editing.role === "MANAGER" ? (
+            <div className="space-y-4 rounded-xl border border-border p-4">
+              <p className="text-sm font-medium text-muted-foreground">
+                Event Visibility
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Manager will only see events matching selected categories or email accounts.
+              </p>
+
+              {categories.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Categories
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {categories.map((cat) => {
+                      const checked = editing.categoryIds?.includes(cat.id);
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => {
+                            const ids = editing.categoryIds || [];
+                            setEditing({
+                              ...editing,
+                              categoryIds: checked
+                                ? ids.filter((i) => i !== cat.id)
+                                : [...ids, cat.id],
+                            });
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            checked
+                              ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                              : "bg-accent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {cat.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {emailAccounts.length > 0 && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Email Accounts
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {emailAccounts.map((acc) => {
+                      const checked = editing.emailAccountIds?.includes(acc.id);
+                      return (
+                        <button
+                          key={acc.id}
+                          onClick={() => {
+                            const ids = editing.emailAccountIds || [];
+                            setEditing({
+                              ...editing,
+                              emailAccountIds: checked
+                                ? ids.filter((i) => i !== acc.id)
+                                : [...ids, acc.id],
+                            });
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            checked
+                              ? "bg-primary/10 text-primary ring-1 ring-primary/30"
+                              : "bg-accent text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {acc.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">
+              {editing.role} sees all events — permissions apply to MANAGER role only.
+            </p>
+          )}
+
           <Button onClick={handleSave} disabled={saving || !editing.name || !editing.email} className="w-full mt-6">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
             Save
@@ -114,7 +214,7 @@ export default function UsersPage() {
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
         <h1 className="text-lg font-semibold tracking-tight">Users</h1>
-        <Button size="sm" className="ml-auto" onClick={() => setEditing({ id: "", email: "", name: "", role: "MANAGER", password: "" })}>
+        <Button size="sm" className="ml-auto" onClick={() => setEditing({ id: "", email: "", name: "", role: "MANAGER", password: "", categoryIds: [], emailAccountIds: [] })}>
           <Plus className="h-4 w-4" /> New User
         </Button>
       </div>

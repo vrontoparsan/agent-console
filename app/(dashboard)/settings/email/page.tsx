@@ -1,70 +1,379 @@
-import { ArrowLeft, Mail, AlertCircle } from "lucide-react";
+"use client";
+
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  ArrowLeft,
+  Plus,
+  Save,
+  Trash2,
+  Loader2,
+  Mail,
+  Server,
+  Send,
+} from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
+
+type EmailAccount = {
+  id: string;
+  label: string;
+  email: string;
+  imapHost: string;
+  imapPort: number;
+  imapUser: string;
+  imapPassword: string;
+  imapTls: boolean;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpPassword: string | null;
+  smtpTls: boolean;
+  enabled: boolean;
+};
+
+const emptyAccount: Omit<EmailAccount, "id"> & { id: string } = {
+  id: "",
+  label: "",
+  email: "",
+  imapHost: "",
+  imapPort: 993,
+  imapUser: "",
+  imapPassword: "",
+  imapTls: true,
+  smtpHost: "",
+  smtpPort: 587,
+  smtpUser: "",
+  smtpPassword: "",
+  smtpTls: true,
+  enabled: true,
+};
 
 export default function EmailSettingsPage() {
-  const imapHost = process.env.IMAP_HOST || "";
-  const imapUser = process.env.IMAP_USER || "";
-  const configured = !!imapHost && !!imapUser;
+  const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [editing, setEditing] = useState<EmailAccount | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadAccounts();
+  }, []);
+
+  async function loadAccounts() {
+    setLoading(true);
+    const res = await fetch("/api/settings/email-accounts");
+    if (res.ok) setAccounts(await res.json());
+    setLoading(false);
+  }
+
+  async function handleSave() {
+    if (!editing) return;
+    setSaving(true);
+    const method = editing.id ? "PUT" : "POST";
+    await fetch("/api/settings/email-accounts", {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(editing),
+    });
+    setSaving(false);
+    setEditing(null);
+    loadAccounts();
+  }
+
+  async function handleDelete(id: string) {
+    await fetch(`/api/settings/email-accounts?id=${id}`, { method: "DELETE" });
+    loadAccounts();
+  }
+
+  async function handleToggle(account: EmailAccount) {
+    await fetch("/api/settings/email-accounts", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...account, enabled: !account.enabled }),
+    });
+    loadAccounts();
+  }
+
+  function updateField<K extends keyof EmailAccount>(key: K, value: EmailAccount[K]) {
+    if (!editing) return;
+    setEditing({ ...editing, [key]: value });
+  }
+
+  if (editing) {
+    return (
+      <div className="max-w-2xl mx-auto py-8 px-6">
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-lg font-semibold">
+            {editing.id ? "Edit Email Account" : "New Email Account"}
+          </h1>
+        </div>
+
+        <div className="space-y-6">
+          {/* Basic info */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Mail className="h-4 w-4" />
+              Account
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Label</label>
+                <Input
+                  value={editing.label}
+                  onChange={(e) => updateField("label", e.target.value)}
+                  placeholder="e.g. Support Inbox"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Email address</label>
+                <Input
+                  value={editing.email}
+                  onChange={(e) => updateField("email", e.target.value)}
+                  placeholder="support@company.com"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* IMAP */}
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Server className="h-4 w-4" />
+              IMAP (Incoming)
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Host</label>
+                <Input
+                  value={editing.imapHost}
+                  onChange={(e) => updateField("imapHost", e.target.value)}
+                  placeholder="imap.gmail.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Port</label>
+                <Input
+                  type="number"
+                  value={editing.imapPort}
+                  onChange={(e) => updateField("imapPort", parseInt(e.target.value) || 993)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Username</label>
+                <Input
+                  value={editing.imapUser}
+                  onChange={(e) => updateField("imapUser", e.target.value)}
+                  placeholder="user@gmail.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Password</label>
+                <Input
+                  type="password"
+                  value={editing.imapPassword}
+                  onChange={(e) => updateField("imapPassword", e.target.value)}
+                  placeholder="App password"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => updateField("imapTls", !editing.imapTls)}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                  editing.imapTls ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    editing.imapTls ? "translate-x-4.5" : "translate-x-0.5"
+                  )}
+                />
+              </button>
+              <span className="text-sm text-muted-foreground">TLS</span>
+            </div>
+          </div>
+
+          {/* SMTP */}
+          <div className="space-y-4 rounded-xl border border-border p-4">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Send className="h-4 w-4" />
+              SMTP (Outgoing) — optional
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Host</label>
+                <Input
+                  value={editing.smtpHost || ""}
+                  onChange={(e) => updateField("smtpHost", e.target.value || null)}
+                  placeholder="smtp.gmail.com"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Port</label>
+                <Input
+                  type="number"
+                  value={editing.smtpPort ?? 587}
+                  onChange={(e) => updateField("smtpPort", parseInt(e.target.value) || null)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Username</label>
+                <Input
+                  value={editing.smtpUser || ""}
+                  onChange={(e) => updateField("smtpUser", e.target.value || null)}
+                  placeholder="Same as IMAP or different"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm text-muted-foreground">Password</label>
+                <Input
+                  type="password"
+                  value={editing.smtpPassword || ""}
+                  onChange={(e) => updateField("smtpPassword", e.target.value || null)}
+                  placeholder="App password"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => updateField("smtpTls", !editing.smtpTls)}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                  editing.smtpTls ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    editing.smtpTls ? "translate-x-4.5" : "translate-x-0.5"
+                  )}
+                />
+              </button>
+              <span className="text-sm text-muted-foreground">TLS</span>
+            </div>
+          </div>
+
+          {/* Enabled toggle */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => updateField("enabled", !editing.enabled)}
+              className={cn(
+                "relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer",
+                editing.enabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                  editing.enabled ? "translate-x-4.5" : "translate-x-0.5"
+                )}
+              />
+            </button>
+            <span className="text-sm text-muted-foreground">
+              {editing.enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+
+          <Button
+            onClick={handleSave}
+            disabled={saving || !editing.label || !editing.email || !editing.imapHost || !editing.imapUser || !editing.imapPassword}
+            className="w-full"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-lg mx-auto py-8 px-6">
+    <div className="max-w-2xl mx-auto py-8 px-6">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings">
           <Button variant="ghost" size="icon">
             <ArrowLeft className="h-4 w-4" />
           </Button>
         </Link>
-        <h1 className="text-lg font-semibold tracking-tight">Email Settings</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Email Accounts</h1>
       </div>
 
-      <div className="rounded-xl border border-border p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Mail className="h-5 w-5 text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">Connected Email</p>
-            <p className="text-xs text-muted-foreground">
-              Configured via environment variables
-            </p>
-          </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Configure email accounts to receive events. Each account can be independently enabled or disabled.
+      </p>
+
+      <div className="flex justify-end mb-4">
+        <Button size="sm" onClick={() => setEditing({ ...emptyAccount })}>
+          <Plus className="h-4 w-4" />
+          New Account
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-
-        {configured ? (
-          <div className="space-y-3 pt-2">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                IMAP Host
-              </p>
-              <p className="text-sm font-mono mt-0.5">{imapHost}</p>
+      ) : accounts.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">
+          No email accounts configured yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {accounts.map((acc) => (
+            <div
+              key={acc.id}
+              className="flex items-center gap-3 rounded-xl border border-border p-4 hover:bg-accent/30 cursor-pointer transition-colors"
+              onClick={() => setEditing(acc)}
+            >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleToggle(acc);
+                }}
+                className={cn(
+                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 cursor-pointer",
+                  acc.enabled ? "bg-primary" : "bg-muted"
+                )}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform",
+                    acc.enabled ? "translate-x-4.5" : "translate-x-0.5"
+                  )}
+                />
+              </button>
+              <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Mail className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className={cn("text-sm font-medium", !acc.enabled && "text-muted-foreground")}>
+                  {acc.label}
+                </span>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                  {acc.email} — {acc.imapHost}:{acc.imapPort}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(acc.id);
+                }}
+                className="text-muted-foreground hover:text-destructive shrink-0"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Account
-              </p>
-              <p className="text-sm font-mono mt-0.5">{imapUser}</p>
-            </div>
-            <div className="flex items-center gap-2 text-plus text-sm">
-              <div className="h-2 w-2 rounded-full bg-plus" />
-              Connected
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-start gap-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3">
-            <AlertCircle className="h-4 w-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-yellow-500">
-                Not configured
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Set IMAP_HOST, IMAP_PORT, IMAP_USER, and IMAP_PASSWORD
-                environment variables to enable email reading.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

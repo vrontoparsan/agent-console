@@ -49,7 +49,7 @@ const settingsItems = [
   {
     href: "/settings/email",
     label: "Email Settings",
-    description: "Connected email account",
+    description: "Email accounts for receiving events",
     icon: Mail,
     roles: ["SUPERADMIN", "ADMIN"],
   },

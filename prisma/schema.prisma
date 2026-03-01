@@ -48,8 +48,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  messages Message[]
-  events   Event[]   @relation("assignedEvents")
+  messages           Message[]
+  events             Event[]                  @relation("assignedEvents")
+  categoryAccess     UserCategoryAccess[]
+  emailAccountAccess UserEmailAccountAccess[]
 }
 
 model Event {
@@ -61,20 +63,25 @@ model Event {
   type       EventType
   status     EventStatus @default(NEW)
   priority   Int         @default(0)
-  categoryId String?
-  assignedTo String?
-  metadata   Json?
-  createdAt  DateTime    @default(now())
-  resolvedAt DateTime?
-  updatedAt  DateTime    @updatedAt
+  categoryId     String?
+  assignedTo     String?
+  emailAccountId String?
+  senderEmail    String?
+  senderName     String?
+  metadata       Json?
+  createdAt      DateTime    @default(now())
+  resolvedAt     DateTime?
+  updatedAt      DateTime    @updatedAt
 
-  category EventCategory? @relation(fields: [categoryId], references: [id])
-  assignee User?          @relation("assignedEvents", fields: [assignedTo], references: [id])
-  actions  EventAction[]
-  messages Message[]
+  category     EventCategory? @relation(fields: [categoryId], references: [id])
+  assignee     User?          @relation("assignedEvents", fields: [assignedTo], references: [id])
+  emailAccount EmailAccount?  @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
+  actions      EventAction[]
+  messages     Message[]
 
   @@index([status])
   @@index([createdAt(sort: Desc)])
+  @@index([emailAccountId])
 }
 
 model EventCategory {
@@ -84,9 +91,56 @@ model EventCategory {
   contextMd   String? @db.Text
   color       String?
 
-  events    Event[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  events     Event[]
+  userAccess UserCategoryAccess[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model EmailAccount {
+  id           String  @id @default(cuid())
+  label        String
+  email        String  @unique
+  imapHost     String
+  imapPort     Int     @default(993)
+  imapUser     String
+  imapPassword String
+  imapTls      Boolean @default(true)
+  smtpHost     String?
+  smtpPort     Int?    @default(587)
+  smtpUser     String?
+  smtpPassword String?
+  smtpTls      Boolean @default(true)
+  enabled      Boolean @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  events     Event[]
+  userAccess UserEmailAccountAccess[]
+}
+
+model UserCategoryAccess {
+  id         String @id @default(cuid())
+  userId     String
+  categoryId String
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category EventCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId])
+  @@index([userId])
+}
+
+model UserEmailAccountAccess {
+  id             String @id @default(cuid())
+  userId         String
+  emailAccountId String
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailAccount EmailAccount @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, emailAccountId])
+  @@index([userId])
 }
 
 model EventAction {

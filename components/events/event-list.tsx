@@ -19,10 +19,13 @@ type EventWithRelations = {
   status: "NEW" | "IN_PROGRESS" | "RESOLVED" | "ARCHIVED";
   priority: number;
   categoryId: string | null;
+  senderEmail: string | null;
+  senderName: string | null;
   metadata: Record<string, unknown> | null;
   createdAt: string;
   resolvedAt: string | null;
   category: { id: string; name: string; color: string | null } | null;
+  emailAccount: { id: string; label: string; email: string } | null;
   actions: { id: string; title: string; description: string | null; status: string }[];
   _count: { messages: number };
 };

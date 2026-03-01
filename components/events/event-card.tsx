@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, MessageSquare } from "lucide-react";
+import { TrendingUp, TrendingDown, MessageSquare, Mail } from "lucide-react";
 
 type EventCardProps = {
   event: {
@@ -10,8 +10,11 @@ type EventCardProps = {
     type: "PLUS" | "MINUS";
     status: "NEW" | "IN_PROGRESS" | "RESOLVED" | "ARCHIVED";
     priority: number;
+    senderEmail: string | null;
+    senderName: string | null;
     createdAt: string;
     category: { name: string; color: string | null } | null;
+    emailAccount: { id: string; label: string; email: string } | null;
     actions: { id: string; title: string }[];
     _count: { messages: number };
   };
@@ -79,6 +82,13 @@ export function EventCard({ event, onClick }: EventCardProps) {
               }}
             >
               {event.category.name}
+            </span>
+          )}
+          {event.emailAccount && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Mail className="h-3 w-3" />
+              {event.emailAccount.label}
+              {event.senderName && <span>— {event.senderName}</span>}
             </span>
           )}
           {event.actions.length > 0 && (
