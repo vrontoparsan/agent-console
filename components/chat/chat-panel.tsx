@@ -156,7 +156,7 @@ export function ChatPanel({
         const chunk = decoder.decode(value, { stream: true });
 
         // Detect agentic format on first chunk
-        if (!isAgentic && !fullText && (chunk.startsWith("event:") || chunk.startsWith("result:"))) {
+        if (!isAgentic && !fullText && (chunk.startsWith("event:") || chunk.startsWith("result:") || chunk.startsWith("text:"))) {
           isAgentic = true;
         }
 
@@ -166,7 +166,23 @@ export function ChatPanel({
           buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
           for (const line of lines) {
-            if (line.startsWith("event:")) {
+            if (!line) continue;
+
+            if (line.startsWith("text:")) {
+              try {
+                const delta = JSON.parse(line.slice(5));
+                fullText += delta;
+                setMessages((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    ...updated[updated.length - 1],
+                    content: fullText,
+                    toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined,
+                  };
+                  return updated;
+                });
+              } catch { /* skip malformed text delta */ }
+            } else if (line.startsWith("event:")) {
               try {
                 const evt = JSON.parse(line.slice(6));
                 toolEvents.push(evt.data || evt.type);

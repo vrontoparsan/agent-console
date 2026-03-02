@@ -173,6 +173,7 @@ export async function agenticChat({
   tools,
   executeTool,
   onEvent,
+  onText,
   maxLoops = 25,
 }: {
   messages: MessageParam[];
@@ -180,12 +181,19 @@ export async function agenticChat({
   tools: Tool[];
   executeTool: (name: string, input: Record<string, unknown>) => Promise<string>;
   onEvent?: (event: { type: string; data: string }) => void;
+  onText?: (delta: string) => void;
   maxLoops?: number;
 }): Promise<string> {
   const history: MessageParam[] = [...messages];
   let finalText = "";
+  let hadToolCalls = false;
 
   for (let i = 0; i < maxLoops; i++) {
+    // Add separator between iterations (after tool execution)
+    if (hadToolCalls) {
+      onText?.("\n\n");
+    }
+
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 32768,
@@ -193,6 +201,12 @@ export async function agenticChat({
       messages: history,
       tools,
     });
+
+    // Stream text deltas in real-time
+    stream.on("text", (delta) => {
+      onText?.(delta);
+    });
+
     const response = await stream.finalMessage();
 
     // Collect text and tool_use blocks
@@ -220,6 +234,7 @@ export async function agenticChat({
       break;
     }
     // If hit max_tokens with no tool calls, let Claude continue
+    hadToolCalls = false;
     if (toolCalls.length === 0 && response.stop_reason === "max_tokens") {
       history.push({ role: "assistant", content: response.content as ContentBlock[] });
       history.push({ role: "user", content: "Continue where you left off." });
@@ -233,6 +248,7 @@ export async function agenticChat({
     });
 
     // Execute each tool and collect results
+    hadToolCalls = true;
     const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
 
     for (const call of toolCalls) {

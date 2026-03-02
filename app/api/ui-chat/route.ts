@@ -263,6 +263,9 @@ Important:
               toolEvents.push(event.data);
               controller.enqueue(encoder.encode(`event:${JSON.stringify(event)}\n`));
             },
+            onText: (delta) => {
+              controller.enqueue(encoder.encode(`text:${JSON.stringify(delta)}\n`));
+            },
           });
 
           // Save assistant response to DB

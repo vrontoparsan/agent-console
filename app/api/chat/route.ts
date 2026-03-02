@@ -178,6 +178,9 @@ Important:
               onEvent: (event) => {
                 controller.enqueue(encoder.encode(`event:${JSON.stringify(event)}\n`));
               },
+              onText: (delta) => {
+                controller.enqueue(encoder.encode(`text:${JSON.stringify(delta)}\n`));
+              },
             });
 
             // Save assistant message

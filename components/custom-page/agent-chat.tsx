@@ -7,8 +7,9 @@ import { cn } from "@/lib/utils";
 
 type Message = {
   id: string;
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant";
   content: string;
+  toolEvents?: string[];
 };
 
 export function AgentChat({
@@ -55,21 +56,15 @@ export function AgentChat({
         if (!data.messages) return;
         const displayMsgs: Message[] = [];
         for (const m of data.messages) {
-          // Expand tool events from metadata
-          if (m.role === "assistant" && m.metadata?.toolEvents) {
-            for (const evt of m.metadata.toolEvents as string[]) {
-              displayMsgs.push({
-                id: `tool-${m.id}-${displayMsgs.length}`,
-                role: "tool",
-                content: evt,
-              });
-            }
-          }
           if (m.role === "user" || m.role === "assistant") {
             displayMsgs.push({
               id: m.id,
               role: m.role,
               content: m.content,
+              toolEvents:
+                m.role === "assistant" && m.metadata?.toolEvents
+                  ? (m.metadata.toolEvents as string[])
+                  : undefined,
             });
           }
         }
@@ -98,7 +93,13 @@ export function AgentChat({
       role: "user",
       content: text,
     };
-    setMessages((prev) => [...prev, userMsg]);
+    const assistantId = `assistant-${Date.now()}`;
+    const assistantMsg: Message = {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+    };
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
 
     try {
       const res = await fetch("/api/ui-chat", {
@@ -120,66 +121,139 @@ export function AgentChat({
 
       const decoder = new TextDecoder();
       let assistantText = "";
+      const toolEvents: string[] = [];
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n").filter(Boolean);
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
         for (const line of lines) {
-          if (line.startsWith("event:")) {
+          if (!line) continue;
+
+          if (line.startsWith("text:")) {
+            try {
+              const delta = JSON.parse(line.slice(5));
+              assistantText += delta;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: assistantText }
+                    : m
+                )
+              );
+            } catch {
+              /* skip malformed text delta */
+            }
+          } else if (line.startsWith("event:")) {
             try {
               const event = JSON.parse(line.slice(6));
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `tool-${Date.now()}-${Math.random()}`,
-                  role: "tool",
-                  content: event.data,
-                },
-              ]);
-            } catch { /* skip malformed events */ }
+              toolEvents.push(event.data);
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, toolEvents: [...toolEvents] }
+                    : m
+                )
+              );
+            } catch {
+              /* skip malformed events */
+            }
           } else if (line.startsWith("result:")) {
             assistantText = line.slice(7);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      content: assistantText,
+                      toolEvents:
+                        toolEvents.length > 0 ? [...toolEvents] : undefined,
+                    }
+                  : m
+              )
+            );
           } else if (line.startsWith("error:")) {
             assistantText = `Error: ${line.slice(6)}`;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: assistantText }
+                  : m
+              )
+            );
           } else if (line.startsWith("pageCreated:")) {
             try {
               const pageInfo = JSON.parse(line.slice(12));
               onPageCreated?.(pageInfo);
-            } catch { /* skip */ }
+            } catch {
+              /* skip */
+            }
           }
         }
       }
 
-      if (assistantText) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: assistantText,
-          },
-        ]);
+      // Process any remaining buffer
+      if (buffer) {
+        if (buffer.startsWith("result:")) {
+          assistantText = buffer.slice(7);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    content: assistantText,
+                    toolEvents:
+                      toolEvents.length > 0 ? [...toolEvents] : undefined,
+                  }
+                : m
+            )
+          );
+        }
       }
 
       onPageUpdated?.();
     } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          role: "assistant",
-          content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
-        },
-      ]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === `assistant-${Date.now()}`
+            ? {
+                ...m,
+                content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
+              }
+            : m
+        )
+      );
+      // Fallback: update last assistant message
+      setMessages((prev) => {
+        const updated = [...prev];
+        const lastIdx = updated.findLastIndex((m) => m.role === "assistant");
+        if (lastIdx >= 0) {
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
+          };
+        }
+        return updated;
+      });
     } finally {
       setLoading(false);
       inputRef.current?.focus();
     }
-  }, [input, loading, context, customPageId, threadId, pageSlug, onPageUpdated, onPageCreated]);
+  }, [
+    input,
+    loading,
+    context,
+    customPageId,
+    threadId,
+    pageSlug,
+    onPageUpdated,
+    onPageCreated,
+  ]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -204,35 +278,44 @@ export function AgentChat({
             key={msg.id}
             className={cn(
               "text-sm",
-              msg.role === "user" && "text-right",
-              msg.role === "tool" && "text-center"
+              msg.role === "user" && "text-right"
             )}
           >
-            {msg.role === "tool" ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground bg-accent/50 px-2.5 py-1 rounded-full">
-                <Wrench className="h-3 w-3" />
-                {msg.content.length > 100 ? msg.content.slice(0, 100) + "..." : msg.content}
-              </span>
-            ) : (
-              <div
-                className={cn(
-                  "inline-block max-w-[85%] px-3 py-2 rounded-xl text-left",
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card border border-border"
-                )}
-              >
+            {/* Tool event badges (inline on assistant messages) */}
+            {msg.role === "assistant" &&
+              msg.toolEvents &&
+              msg.toolEvents.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {msg.toolEvents.map((evt, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-accent/50 px-2.5 py-1 rounded-full"
+                    >
+                      <Wrench className="h-3 w-3" />
+                      {evt.length > 80 ? evt.slice(0, 80) + "..." : evt}
+                    </span>
+                  ))}
+                </div>
+              )}
+            <div
+              className={cn(
+                "inline-block max-w-[85%] px-3 py-2 rounded-xl text-left",
+                msg.role === "user"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border"
+              )}
+            >
+              {msg.role === "assistant" && !msg.content && loading ? (
+                <span className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span className="text-xs">Agent is working...</span>
+                </span>
+              ) : (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         ))}
-        {loading && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Agent is working...
-          </div>
-        )}
       </div>
 
       {/* Input */}
