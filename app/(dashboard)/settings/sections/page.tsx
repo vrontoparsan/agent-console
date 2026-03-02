@@ -181,6 +181,7 @@ function SortableCategoryGroup({
   onDeleteSection,
   onDeleteCategory,
   onRenameSection,
+  onRenameCategory,
   allSectionIds,
 }: {
   category: Category;
@@ -188,9 +189,12 @@ function SortableCategoryGroup({
   onDeleteSection: (id: string, title: string) => void;
   onDeleteCategory: (id: string, name: string) => void;
   onRenameSection: (id: string, newTitle: string) => void;
+  onRenameCategory: (id: string, newName: string) => void;
   allSectionIds: string[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(category.name);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: `cat-${category.id}` });
 
@@ -198,6 +202,14 @@ function SortableCategoryGroup({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  function handleSave() {
+    const trimmed = editName.trim();
+    if (trimmed && trimmed !== category.name) {
+      onRenameCategory(category.id, trimmed);
+    }
+    setEditing(false);
+  }
 
   return (
     <div ref={setNodeRef} style={style} className={cn(isDragging && "opacity-50 shadow-lg z-10")}>
@@ -217,16 +229,47 @@ function SortableCategoryGroup({
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </button>
         <FolderOpen className="h-4 w-4 text-primary shrink-0" />
-        <span className="text-sm font-medium flex-1">{category.name}</span>
-        <span className="text-[11px] text-muted-foreground">{category.pages.length} sekcií</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-          onClick={() => onDeleteCategory(category.id, category.name)}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {editing ? (
+          <div className="flex items-center gap-1.5 flex-1">
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") { setEditing(false); setEditName(category.name); }
+              }}
+              className="h-7 text-sm"
+              autoFocus
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={handleSave}>
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { setEditing(false); setEditName(category.name); }}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <>
+            <span className="text-sm font-medium flex-1">{category.name}</span>
+            <span className="text-[11px] text-muted-foreground">{category.pages.length} sekcií</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={() => { setEditName(category.name); setEditing(true); }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              onClick={() => onDeleteCategory(category.id, category.name)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
       </div>
       {/* Category children */}
       {!collapsed && (
@@ -366,6 +409,17 @@ export default function ManageSectionsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, title: newTitle }),
+      });
+      await loadData();
+    } catch { /* ignore */ }
+  }
+
+  async function handleRenameCategory(id: string, newName: string) {
+    try {
+      await fetch("/api/pages/categories", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name: newName }),
       });
       await loadData();
     } catch { /* ignore */ }
@@ -629,6 +683,7 @@ export default function ManageSectionsPage() {
                       onDeleteSection={handleDeleteSection}
                       onDeleteCategory={handleDeleteCategory}
                       onRenameSection={handleRenameSection}
+                      onRenameCategory={handleRenameCategory}
                       allSectionIds={allSectionIds}
                     />
                   ))}

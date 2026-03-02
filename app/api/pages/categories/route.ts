@@ -69,6 +69,27 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// PUT: Rename a category
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id, name } = await req.json();
+  if (!id || !name || typeof name !== "string") {
+    return NextResponse.json({ error: "ID and name are required" }, { status: 400 });
+  }
+
+  const category = await prisma.sectionCategory.update({
+    where: { id },
+    data: { name: name.trim() },
+  });
+
+  return NextResponse.json(category);
+}
+
 // PATCH: Batch reorder categories
 export async function PATCH(req: NextRequest) {
   const session = await auth();
