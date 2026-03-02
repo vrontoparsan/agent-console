@@ -19,6 +19,8 @@ export function AgentChat({
   threadId,
   onPageUpdated,
   onPageCreated,
+  initialMessage,
+  onInitialMessageSent,
   className,
 }: {
   context: "configurator" | "page-editor";
@@ -27,6 +29,8 @@ export function AgentChat({
   threadId?: string;
   onPageUpdated?: () => void;
   onPageCreated?: (page: { id: string; slug: string; title: string }) => void;
+  initialMessage?: string;
+  onInitialMessageSent?: () => void;
   className?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -81,11 +85,13 @@ export function AgentChat({
     }
   }, [messages]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
+  const initialMessageSentRef = useRef(false);
+
+  const handleSend = useCallback(async (overrideText?: string) => {
+    const text = (overrideText || input).trim();
     if (!text || loading) return;
 
-    setInput("");
+    if (!overrideText) setInput("");
     setLoading(true);
 
     const userMsg: Message = {
@@ -255,6 +261,15 @@ export function AgentChat({
     onPageCreated,
   ]);
 
+  // Auto-send initialMessage (e.g. from runtime error report)
+  useEffect(() => {
+    if (initialMessage && historyLoaded && !loading && !initialMessageSentRef.current) {
+      initialMessageSentRef.current = true;
+      handleSend(initialMessage);
+      onInitialMessageSent?.();
+    }
+  }, [initialMessage, historyLoaded, loading, handleSend, onInitialMessageSent]);
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -333,7 +348,7 @@ export function AgentChat({
           />
           <Button
             size="icon"
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={loading || !input.trim()}
           >
             <Send className="h-4 w-4" />

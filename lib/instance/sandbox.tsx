@@ -25,12 +25,26 @@ class InstanceErrorBoundary extends React.Component<
           <pre className="text-sm text-muted-foreground whitespace-pre-wrap font-mono">
             {this.state.error.message}
           </pre>
-          <button
-            onClick={() => this.setState({ error: null })}
-            className="mt-3 text-sm text-primary hover:underline cursor-pointer"
-          >
-            Try again
-          </button>
+          <div className="flex gap-3 mt-3">
+            <button
+              onClick={() => this.setState({ error: null })}
+              className="text-sm text-primary hover:underline cursor-pointer"
+            >
+              Try again
+            </button>
+            <button
+              onClick={() => {
+                globalThis.dispatchEvent(
+                  new CustomEvent("instance-error-report", {
+                    detail: { error: this.state.error?.message || "Unknown error" },
+                  })
+                );
+              }}
+              className="text-sm text-destructive hover:underline cursor-pointer font-medium"
+            >
+              Oprav chybu
+            </button>
+          </div>
         </div>
       );
     }

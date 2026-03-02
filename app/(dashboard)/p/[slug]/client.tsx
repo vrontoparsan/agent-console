@@ -29,6 +29,7 @@ export function CustomPageClient({
   const router = useRouter();
   const [chatOpen, setChatOpen] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: string } | null>(null);
+  const [errorToReport, setErrorToReport] = useState<string | null>(null);
 
   // Listen for instance SDK events
   useEffect(() => {
@@ -41,11 +42,18 @@ export function CustomPageClient({
       const { path } = (e as CustomEvent).detail;
       router.push(path);
     }
+    function handleErrorReport(e: Event) {
+      const { error } = (e as CustomEvent).detail;
+      setErrorToReport(error);
+      setChatOpen(true);
+    }
     window.addEventListener("instance-notify", handleNotify);
     window.addEventListener("instance-navigate", handleNavigate);
+    window.addEventListener("instance-error-report", handleErrorReport);
     return () => {
       window.removeEventListener("instance-notify", handleNotify);
       window.removeEventListener("instance-navigate", handleNavigate);
+      window.removeEventListener("instance-error-report", handleErrorReport);
     };
   }, [router]);
 
@@ -100,6 +108,8 @@ export function CustomPageClient({
             pageSlug={slug}
             customPageId={pageId}
             onPageUpdated={() => router.refresh()}
+            initialMessage={errorToReport ? `🚨 Runtime Error na tejto stránke:\n\n${errorToReport}\n\nPrečítaj aktuálny kód stránky (get_instance_page) a oprav túto chybu.` : undefined}
+            onInitialMessageSent={() => setErrorToReport(null)}
             className="h-full"
           />
         </div>

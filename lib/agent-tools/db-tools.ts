@@ -535,6 +535,15 @@ Returns { ok: true } on success, or { ok: false, error: "..." } with the compila
       },
     },
     {
+      name: "list_instance_pages_code",
+      description: `List existing Instance pages with their code snippets. Use this BEFORE creating a new page to learn existing patterns, naming conventions, and styling. Helps maintain consistency across pages.`,
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [],
+      },
+    },
+    {
       name: "introspect_table",
       description: `Get the column schema of a custom table. Returns column names, data types, and defaults. Use this before writing code that references a custom table to ensure you use correct column names and types.`,
       input_schema: {
@@ -629,6 +638,33 @@ export async function executeInstancePageTool(
         return JSON.stringify({ ok: true });
       }
       return JSON.stringify({ ok: false, error: result.error });
+    }
+
+    case "list_instance_pages_code": {
+      try {
+        const pages = await prisma.customPage.findMany({
+          where: { code: { not: null } },
+          select: { slug: true, title: true, code: true },
+          orderBy: { updatedAt: "desc" },
+          take: 5,
+        });
+        const result = pages.map((p) => {
+          const lines = (p.code || "").split("\n");
+          const preview = lines.slice(0, 150).join("\n");
+          const truncated = lines.length > 150;
+          return {
+            slug: p.slug,
+            title: p.title,
+            codePreview: preview + (truncated ? "\n// ... (truncated)" : ""),
+          };
+        });
+        if (result.length === 0) {
+          return JSON.stringify({ pages: [], note: "No existing Instance pages found. You are creating the first one." });
+        }
+        return JSON.stringify({ pages: result }, null, 2);
+      } catch (err) {
+        return `Error listing pages: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
 
     case "introspect_table": {

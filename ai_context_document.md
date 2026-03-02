@@ -171,6 +171,16 @@ Dockerfile                # Multi-stage Docker build
 
 **introspect_table** — Returns column schema (name, type, default, nullable) for a custom table. Agent uses this before writing code that references custom tables.
 
+**list_instance_pages_code** — Lists existing Instance pages with code snippets (max 5 pages, 150 lines each). Agent calls this before creating new pages to learn patterns and maintain consistency.
+
+### Agentic Quality Features
+
+1. **Self-correction loop** — Agent verifies code after every write. If compilation fails, it reads the error, fixes, and re-verifies (up to 3 attempts).
+2. **Incremental creation** — Agent builds pages step by step: basic DataTable → verify → add CRUD → verify → polish → verify.
+3. **Learning from existing pages** — Before creating new pages, agent reads existing page code for pattern/style consistency.
+4. **Runtime error reporting** — ErrorBoundary in sandbox.tsx has "Oprav chybu" button that auto-opens page editor chat with error context. Agent receives the runtime error message and runs full diagnostic flow.
+5. **Error diagnosis** — When user reports "it doesn't work", agent automatically: reads code → verifies → introspects tables → analyzes for common issues → fixes.
+
 ### Two Chat Contexts
 
 1. **Main Chat** (`/api/chat`) — general business chat, event-specific conversations, persistent via Message model with eventId
