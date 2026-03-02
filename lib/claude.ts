@@ -188,7 +188,7 @@ export async function agenticChat({
   for (let i = 0; i < maxLoops; i++) {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: systemPrompt,
       messages: history,
       tools,
@@ -214,9 +214,15 @@ export async function agenticChat({
       finalText = textParts.join("");
     }
 
-    // If no tool calls, we're done
-    if (response.stop_reason !== "tool_use" || toolCalls.length === 0) {
+    // If no tool calls and not cut off mid-response, we're done
+    if (toolCalls.length === 0 && response.stop_reason !== "max_tokens") {
       break;
+    }
+    // If hit max_tokens with no tool calls, let Claude continue
+    if (toolCalls.length === 0 && response.stop_reason === "max_tokens") {
+      history.push({ role: "assistant", content: response.content as ContentBlock[] });
+      history.push({ role: "user", content: "Continue where you left off." });
+      continue;
     }
 
     // Add assistant message with all content blocks
