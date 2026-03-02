@@ -186,13 +186,14 @@ export async function agenticChat({
   let finalText = "";
 
   for (let i = 0; i < maxLoops; i++) {
-    const response = await anthropic.messages.create({
+    const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 32768,
       system: systemPrompt,
       messages: history,
       tools,
     });
+    const response = await stream.finalMessage();
 
     // Collect text and tool_use blocks
     const textParts: string[] = [];
