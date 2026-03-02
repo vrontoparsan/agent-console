@@ -23,8 +23,10 @@ export function StatsComponent({ config }: { config: ComponentConfig }) {
       const results = await Promise.all(
         items.map(async (item) => {
           try {
+            const isCstm = item.table.startsWith("cstm_") || item.table.startsWith("custom_");
+            const endpoint = isCstm ? "/api/cstm" : "/api/data";
             const params = new URLSearchParams({ table: item.table, page: "1", pageSize: "1" });
-            const res = await fetch(`/api/data?${params}`);
+            const res = await fetch(`${endpoint}?${params}`);
             if (res.ok) {
               const json = await res.json();
               return json.total || 0;
@@ -41,6 +43,36 @@ export function StatsComponent({ config }: { config: ComponentConfig }) {
     load();
   }, [items]);
 
+  // Listen for data changes to refresh stats
+  useEffect(() => {
+    function handleDataChanged() {
+      // Re-fetch all stats
+      const load = async () => {
+        const results = await Promise.all(
+          items.map(async (item) => {
+            try {
+              const isCstm = item.table.startsWith("cstm_") || item.table.startsWith("custom_");
+              const endpoint = isCstm ? "/api/cstm" : "/api/data";
+              const params = new URLSearchParams({ table: item.table, page: "1", pageSize: "1" });
+              const res = await fetch(`${endpoint}?${params}`);
+              if (res.ok) {
+                const json = await res.json();
+                return json.total || 0;
+              }
+              return 0;
+            } catch {
+              return 0;
+            }
+          })
+        );
+        setValues(results);
+      };
+      load();
+    }
+    window.addEventListener("cstm-data-changed", handleDataChanged);
+    return () => window.removeEventListener("cstm-data-changed", handleDataChanged);
+  }, [items]);
+
   return (
     <div className="rounded-xl border border-border overflow-hidden">
       {config.title && (
@@ -55,7 +87,7 @@ export function StatsComponent({ config }: { config: ComponentConfig }) {
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : (
-              <p className="text-2xl font-semibold">{values[i]?.toLocaleString() ?? "—"}</p>
+              <p className="text-2xl font-semibold">{values[i]?.toLocaleString() ?? "\u2014"}</p>
             )}
           </div>
         ))}

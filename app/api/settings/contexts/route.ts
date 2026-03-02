@@ -58,7 +58,7 @@ const DEFAULT_CONTEXTS = [
 ## Custom Pages
 - Use clear slugs (lowercase, hyphens)
 - Choose appropriate Lucide icon names
-- Custom tables must be prefixed with "custom_"
+- Custom tables must be prefixed with "cstm_"
 
 ## General
 - Use the right tool for the job

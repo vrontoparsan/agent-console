@@ -6,8 +6,9 @@ import { cn } from "@/lib/utils";
 import { EventCard } from "./event-card";
 import { EventModal } from "./event-modal";
 import { NewEventForm } from "./new-event-form";
+import { VoiceRecorder } from "./voice-recorder";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Mic } from "lucide-react";
 
 type EventWithRelations = {
   id: string;
@@ -52,6 +53,7 @@ export function EventList({
   const router = useRouter();
   const [selectedEvent, setSelectedEvent] = useState<EventWithRelations | null>(null);
   const [showNewEvent, setShowNewEvent] = useState(false);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const totalPages = Math.ceil(total / pageSize);
 
   function setFilter(f: string) {
@@ -68,10 +70,16 @@ export function EventList({
       <div className="border-b border-border px-6 py-4">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-lg font-semibold tracking-tight">Events</h1>
-          <Button size="sm" onClick={() => setShowNewEvent(true)}>
-            <Plus className="h-4 w-4" />
-            New Event
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowVoiceRecorder(true)}>
+              <Mic className="h-4 w-4" />
+              Record Event
+            </Button>
+            <Button size="sm" onClick={() => setShowNewEvent(true)}>
+              <Plus className="h-4 w-4" />
+              New Event
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -154,6 +162,17 @@ export function EventList({
       {/* New Event Form */}
       {showNewEvent && (
         <NewEventForm onClose={() => setShowNewEvent(false)} />
+      )}
+
+      {/* Voice Recorder */}
+      {showVoiceRecorder && (
+        <VoiceRecorder
+          onComplete={() => {
+            setShowVoiceRecorder(false);
+            router.refresh();
+          }}
+          onCancel={() => setShowVoiceRecorder(false)}
+        />
       )}
     </>
   );

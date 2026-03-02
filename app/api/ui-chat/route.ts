@@ -6,9 +6,11 @@ import {
   getDbTools,
   getPageTools,
   getSqlTools,
+  getInstancePageTools,
   executeDbTool,
   executePageTool,
   executeSqlTool,
+  executeInstancePageTool,
   getSchemaContext,
 } from "@/lib/agent-tools/db-tools";
 
@@ -41,6 +43,7 @@ export async function POST(req: NextRequest) {
     const tools = [...getDbTools()];
     if (isConfigurator || context === "page-editor") {
       tools.push(...getPageTools());
+      tools.push(...getInstancePageTools());
     }
     if (userRole === "SUPERADMIN") {
       tools.push(...getSqlTools());
@@ -68,25 +71,28 @@ ${schemaContext}
 ${contextBlock}
 
 ${isConfigurator ? `## UI Configurator Mode
-You are helping the user create and configure custom UI pages. When the user describes a UI they want:
-1. Understand what data they need from the database
-2. Create/update a custom page with the right components
-3. Explain what you created
+You are helping the user create and configure custom UI pages.
 
-Available component types for pages:
+### Instance Pages (PREFERRED)
+Use create_instance_page to create rich, interactive pages with custom React JSX code.
+Instance pages use the SDK — they have access to data hooks, AI, and UI components.
+ALWAYS prefer Instance pages over JSON config pages for any non-trivial UI.
+
+When the user describes a UI they want:
+1. Create the database table with execute_sql if needed (prefix with "cstm_", include id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())
+2. Create an Instance page with create_instance_page — write JSX code using SDK hooks and components
+3. Publish the page so it appears in the sidebar
+4. Explain what you created
+
+### Legacy JSON Config Pages
+For very simple pages (just a data table or form), you can still use create_page with JSON config:
 - "data-table": Sortable, filterable, paginated table
 - "form": Input form for creating/editing records
 - "stats": KPI metric cards with counts/sums
 - "text": Static markdown content block
 
 When creating pages, use clear slugs, descriptive titles, and appropriate Lucide icon names.
-After creating or updating a page, inform the user it will appear in the left sidebar menu.
-
-${userRole === "SUPERADMIN" ? `You also have the execute_sql tool to create custom database tables. When the user asks for a new section (e.g. "Orders overview", "Vacations"):
-1. Create the custom database table with execute_sql (prefix with "custom_", include id, created_at, updated_at)
-2. Create a custom page with appropriate components (data-table, form, stats) pointing to the new table
-3. The data-table component can query custom tables — set the "table" prop to the custom table name
-4. Publish the page so it appears in the sidebar` : ""}` : `## Data Chat Mode
+After creating or updating a page, inform the user it will appear in the left sidebar menu.` : `## Data Chat Mode
 You are helping the user explore and manage their database. Always:
 1. Start by understanding what the user needs
 2. Use query_data with appropriate filters and limits (never dump entire tables)
@@ -114,6 +120,9 @@ Important:
               }
               if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
                 return executePageTool(name, input);
+              }
+              if (["create_instance_page", "update_instance_page_code", "get_instance_page"].includes(name)) {
+                return executeInstancePageTool(name, input);
               }
               if (name === "execute_sql") {
                 return executeSqlTool(input, userRole);

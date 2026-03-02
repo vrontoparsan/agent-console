@@ -54,6 +54,114 @@ Respond in JSON format:
 }
 
 /**
+ * Classify email as PLUS/MINUS and generate summary.
+ * Also attempts to match an existing category.
+ */
+export async function classifyAndSummarizeEmail(
+  subject: string,
+  bodyText: string,
+  categories: { id: string; name: string; contextMd: string | null }[]
+): Promise<{ summary: string; type: "PLUS" | "MINUS"; categoryId: string | null }> {
+  const categoryList = categories.length > 0
+    ? `\nAvailable categories:\n${categories.map((c) => `- ${c.id}: ${c.name}${c.contextMd ? ` (${c.contextMd.slice(0, 100)})` : ""}`).join("\n")}`
+    : "";
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 512,
+    system: `You classify incoming business emails. Respond in JSON only.
+${categoryList}
+
+JSON format:
+{"summary": "1-2 sentence summary", "type": "PLUS or MINUS", "categoryId": "matching category id or null"}
+
+Rules:
+- PLUS = positive (new order, payment, partnership, good news)
+- MINUS = negative (complaint, issue, cancellation, problem, request needing attention)
+- When uncertain, default to MINUS (needs attention)
+- summary should be in the same language as the email`,
+    messages: [{ role: "user", content: `Subject: ${subject}\n\nBody:\n${bodyText.slice(0, 3000)}` }],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "{}";
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+    return {
+      summary: parsed.summary || subject,
+      type: parsed.type === "PLUS" ? "PLUS" : "MINUS",
+      categoryId: parsed.categoryId || null,
+    };
+  } catch {
+    return { summary: subject, type: "MINUS", categoryId: null };
+  }
+}
+
+/**
+ * Compose an email reply using event context.
+ */
+export async function composeEmailReply({
+  eventTitle,
+  eventContent,
+  senderName,
+  senderEmail,
+  chatHistory,
+  categoryContext,
+  companyInfo,
+  toneInstructions,
+  signature,
+  actionDescription,
+}: {
+  eventTitle: string;
+  eventContent: string;
+  senderName?: string;
+  senderEmail?: string;
+  chatHistory?: string;
+  categoryContext?: string;
+  companyInfo?: string;
+  toneInstructions?: string;
+  signature?: string;
+  actionDescription?: string;
+}): Promise<string> {
+  const systemPrompt = `You are writing an email reply on behalf of a company.
+
+${toneInstructions ? `Tone & style: ${toneInstructions}` : "Be professional but friendly. Match the language of the original email."}
+
+${companyInfo ? `Company: ${companyInfo}` : ""}
+${categoryContext ? `Category context:\n${categoryContext}` : ""}
+
+Rules:
+- Write ONLY the email body (no subject line, no "From:", no headers)
+- Match the language of the original email
+- Be concise and helpful
+- Do NOT include a signature — it will be appended automatically
+- Address the sender by name if known`;
+
+  const userMsg = `Original email from ${senderName || senderEmail || "sender"}:
+Subject: ${eventTitle}
+
+${eventContent}
+
+${chatHistory ? `\nInternal discussion about this event:\n${chatHistory}` : ""}
+${actionDescription ? `\nAction to take: ${actionDescription}` : "\nWrite an appropriate reply to this email."}`;
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMsg }],
+  });
+
+  let reply = response.content[0].type === "text" ? response.content[0].text : "";
+
+  if (signature) {
+    reply += `\n\n${signature}`;
+  }
+
+  return reply;
+}
+
+/**
  * Agentic chat with tool_use loop.
  * Calls Claude with tools, executes tools on each tool_use response,
  * and loops until Claude responds with end_turn.

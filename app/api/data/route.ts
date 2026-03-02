@@ -30,16 +30,16 @@ export async function GET(req: NextRequest) {
     100
   );
 
-  // Allow custom_ tables via raw SQL
-  if (table.startsWith("custom_")) {
+  // Allow cstm_ and custom_ (legacy) tables via raw SQL
+  if (table.startsWith("cstm_") || table.startsWith("custom_")) {
     try {
       const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `SELECT count(*)::bigint as count FROM "${table}"`
+        `SELECT count(*)::bigint as count FROM instance."${table}"`
       );
       const total = Number(countResult[0]?.count || 0);
 
       const data = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-        `SELECT * FROM "${table}" ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
+        `SELECT * FROM instance."${table}" ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
       );
 
       const columns = data.length > 0 ? Object.keys(data[0]) : [];

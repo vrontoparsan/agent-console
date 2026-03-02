@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { PageRenderer, type PageConfig } from "@/components/custom-page/page-renderer";
+import dynamic from "next/dynamic";
+
+const InstancePageRenderer = dynamic(
+  () => import("@/lib/instance/sandbox").then((m) => m.InstancePageRenderer),
+  { ssr: false }
+);
 import { AgentChat } from "@/components/custom-page/agent-chat";
 import { Wand2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,13 +17,35 @@ export function CustomPageClient({
   slug,
   title,
   config,
+  code,
 }: {
   slug: string;
   title: string;
   config: Record<string, unknown>;
+  code?: string | null;
 }) {
   const router = useRouter();
   const [chatOpen, setChatOpen] = useState(false);
+  const [notification, setNotification] = useState<{ message: string; type: string } | null>(null);
+
+  // Listen for instance SDK events
+  useEffect(() => {
+    function handleNotify(e: Event) {
+      const detail = (e as CustomEvent).detail;
+      setNotification({ message: detail.message, type: detail.type || "info" });
+      setTimeout(() => setNotification(null), 4000);
+    }
+    function handleNavigate(e: Event) {
+      const { path } = (e as CustomEvent).detail;
+      router.push(path);
+    }
+    window.addEventListener("instance-notify", handleNotify);
+    window.addEventListener("instance-navigate", handleNavigate);
+    return () => {
+      window.removeEventListener("instance-notify", handleNotify);
+      window.removeEventListener("instance-navigate", handleNavigate);
+    };
+  }, [router]);
 
   return (
     <div className="flex-1 flex flex-col relative">
@@ -28,8 +56,26 @@ export function CustomPageClient({
 
       {/* Page content */}
       <div className="flex-1 overflow-auto p-6">
-        <PageRenderer config={config as PageConfig} />
+        {code ? (
+          <InstancePageRenderer code={code} />
+        ) : (
+          <PageRenderer config={config as PageConfig} />
+        )}
       </div>
+
+      {/* Toast notification */}
+      {notification && (
+        <div
+          className={cn(
+            "fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all animate-in fade-in slide-in-from-top-2",
+            notification.type === "error" && "bg-destructive text-destructive-foreground",
+            notification.type === "success" && "bg-green-600 text-white",
+            notification.type === "info" && "bg-primary text-primary-foreground"
+          )}
+        >
+          {notification.message}
+        </div>
+      )}
 
       {/* Magic wand button */}
       <button

@@ -12,6 +12,9 @@ import {
   Mail,
   Server,
   Send,
+  MessageSquare,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -31,6 +34,13 @@ type EmailAccount = {
   smtpPassword: string | null;
   smtpTls: boolean;
   enabled: boolean;
+  lastPolledAt: string | null;
+  lastError: string | null;
+};
+
+type EmailSettings = {
+  tone: string;
+  signature: string;
 };
 
 const emptyAccount: Omit<EmailAccount, "id"> & { id: string } = {
@@ -48,6 +58,13 @@ const emptyAccount: Omit<EmailAccount, "id"> & { id: string } = {
   smtpPassword: "",
   smtpTls: true,
   enabled: true,
+  lastPolledAt: null,
+  lastError: null,
+};
+
+const defaultEmailSettings: EmailSettings = {
+  tone: "Professional but friendly. Match the language of the sender. Be concise and helpful.",
+  signature: "S pozdravom,\n{companyName}\n{email}\n{phone}",
 };
 
 export default function EmailSettingsPage() {
@@ -56,8 +73,14 @@ export default function EmailSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Email tone/signature settings
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(defaultEmailSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
   useEffect(() => {
     loadAccounts();
+    loadEmailSettings();
   }, []);
 
   async function loadAccounts() {
@@ -65,6 +88,47 @@ export default function EmailSettingsPage() {
     const res = await fetch("/api/settings/email-accounts");
     if (res.ok) setAccounts(await res.json());
     setLoading(false);
+  }
+
+  async function loadEmailSettings() {
+    setSettingsLoading(true);
+    try {
+      const res = await fetch("/api/settings/company");
+      if (res.ok) {
+        const data = await res.json();
+        const extra = data?.extra || {};
+        if (extra.emailSettings) {
+          setEmailSettings({
+            tone: extra.emailSettings.tone || defaultEmailSettings.tone,
+            signature: extra.emailSettings.signature || defaultEmailSettings.signature,
+          });
+        }
+      }
+    } catch {
+      // use defaults
+    }
+    setSettingsLoading(false);
+  }
+
+  async function handleSaveEmailSettings() {
+    setSettingsSaving(true);
+    try {
+      // First load current extra to not overwrite other fields
+      const res = await fetch("/api/settings/company");
+      const data = res.ok ? await res.json() : {};
+      const currentExtra = data?.extra || {};
+
+      await fetch("/api/settings/company", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          extra: { ...currentExtra, emailSettings },
+        }),
+      });
+    } catch {
+      // ignore
+    }
+    setSettingsSaving(false);
   }
 
   async function handleSave() {
@@ -305,7 +369,8 @@ export default function EmailSettingsPage() {
       </div>
 
       <p className="text-sm text-muted-foreground mb-4">
-        Configure email accounts to receive events. Each account can be independently enabled or disabled.
+        Configure email accounts to receive events via IMAP polling and send replies via SMTP.
+        Enabled accounts are polled every 2 minutes for new emails.
       </p>
 
       <div className="flex justify-end mb-4">
@@ -355,9 +420,23 @@ export default function EmailSettingsPage() {
                 <span className={cn("text-sm font-medium", !acc.enabled && "text-muted-foreground")}>
                   {acc.label}
                 </span>
-                <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                  {acc.email} — {acc.imapHost}:{acc.imapPort}
-                </p>
+                <div className="flex items-center gap-3 mt-0.5">
+                  <p className="text-xs text-muted-foreground truncate">
+                    {acc.email} — {acc.imapHost}:{acc.imapPort}
+                  </p>
+                  {acc.lastPolledAt && (
+                    <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+                      <Clock className="h-3 w-3" />
+                      {new Date(acc.lastPolledAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                  {acc.lastError && (
+                    <span className="text-xs text-red-400 flex items-center gap-1 shrink-0" title={acc.lastError}>
+                      <AlertCircle className="h-3 w-3" />
+                      Error
+                    </span>
+                  )}
+                </div>
               </div>
               <Button
                 variant="ghost"
@@ -374,6 +453,64 @@ export default function EmailSettingsPage() {
           ))}
         </div>
       )}
+
+      {/* Agent Email Tone & Signature */}
+      <div className="mt-10 pt-8 border-t border-border">
+        <div className="flex items-center gap-2 mb-4">
+          <MessageSquare className="h-5 w-5 text-muted-foreground" />
+          <h2 className="text-base font-semibold">Agent Email Tone & Signature</h2>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-4">
+          Configure how the AI agent sounds when replying to emails. These settings apply to all auto-composed email replies.
+        </p>
+
+        {settingsLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Tone & Style Instructions
+              </label>
+              <textarea
+                value={emailSettings.tone}
+                onChange={(e) => setEmailSettings({ ...emailSettings, tone: e.target.value })}
+                placeholder="e.g. Professional but friendly. Always respond in Slovak..."
+                className="w-full min-h-[100px] rounded-lg border border-input bg-background px-3 py-2.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+                rows={4}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Email Signature
+              </label>
+              <textarea
+                value={emailSettings.signature}
+                onChange={(e) => setEmailSettings({ ...emailSettings, signature: e.target.value })}
+                placeholder="S pozdravom,\n{companyName}"
+                className="w-full min-h-[80px] rounded-lg border border-input bg-background px-3 py-2.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground font-mono"
+                rows={4}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Variables: {"{companyName}"}, {"{email}"}, {"{phone}"}, {"{web}"}
+              </p>
+            </div>
+
+            <Button
+              onClick={handleSaveEmailSettings}
+              disabled={settingsSaving}
+              className="w-full"
+            >
+              {settingsSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Email Settings
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

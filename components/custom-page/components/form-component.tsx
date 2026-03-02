@@ -27,6 +27,8 @@ export function FormComponent({ config }: { config: ComponentConfig }) {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
+  const isCstmTable = table.startsWith("cstm_") || table.startsWith("custom_");
+
   function updateField(key: string, value: unknown) {
     setValues((prev) => ({ ...prev, [key]: value }));
     setSuccess(false);
@@ -38,22 +40,39 @@ export function FormComponent({ config }: { config: ComponentConfig }) {
     setSuccess(false);
 
     try {
-      const res = await fetch("/api/ui-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: `Create a new record in ${table} with this data: ${JSON.stringify(values)}`,
-          context: "configurator",
-        }),
-      });
+      if (isCstmTable) {
+        // Direct insert for custom tables — fast, no AI round-trip
+        const res = await fetch("/api/cstm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ table, data: values }),
+        });
 
-      if (!res.ok) throw new Error("Failed to save");
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || "Failed to save");
+        }
+      } else {
+        // Prisma models: use agent chat
+        const res = await fetch("/api/ui-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: `Create a new record in ${table} with this data: ${JSON.stringify(values)}`,
+            context: "configurator",
+          }),
+        });
+
+        if (!res.ok) throw new Error("Failed to save");
+      }
 
       setValues({});
       setSuccess(true);
+      // Dispatch event so sibling data-table components can refetch
+      window.dispatchEvent(new CustomEvent("cstm-data-changed", { detail: { table } }));
       setTimeout(() => setSuccess(false), 3000);
-    } catch {
-      setError("Failed to save record");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save record");
     } finally {
       setSaving(false);
     }

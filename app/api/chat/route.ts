@@ -136,7 +136,7 @@ ${schemaContext}
 User role: SUPERADMIN. Full access to all operations.
 
 When the user asks to create a new section (e.g. "Orders overview", "Vacations"):
-1. Create the custom database table with execute_sql (prefix with "custom_", include id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())
+1. Create the custom database table with execute_sql (prefix with "cstm_", include id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())
 2. Create a custom page with appropriate components (data-table, form, stats) pointing to the new table
 3. Publish the page so it appears in the sidebar
 4. Explain what was created

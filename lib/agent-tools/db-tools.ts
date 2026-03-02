@@ -390,9 +390,9 @@ export function getSqlTools(): Tool[] {
 
 Rules:
 - Never modify core Prisma-managed tables (User, Event, EventCategory, EmailAccount, etc.)
-- Table names for custom tables should be prefixed with "custom_" (e.g. custom_orders, custom_vacations)
+- Table names for custom tables MUST be prefixed with "cstm_" (e.g. cstm_orders, cstm_vacations)
 - Always use snake_case for column names
-- Include id (TEXT PRIMARY KEY), created_at (TIMESTAMPTZ DEFAULT NOW()), updated_at (TIMESTAMPTZ DEFAULT NOW()) in every new table
+- Include id (TEXT PRIMARY KEY DEFAULT gen_random_uuid()), created_at (TIMESTAMPTZ DEFAULT NOW()), updated_at (TIMESTAMPTZ DEFAULT NOW()) in every new table
 - Use standard PostgreSQL types: TEXT, INTEGER, NUMERIC, BOOLEAN, TIMESTAMPTZ, JSONB`,
       input_schema: {
         type: "object" as const,
@@ -417,6 +417,16 @@ const CORE_TABLES = [
   "_prisma_migrations",
 ];
 
+// Rewrite unqualified cstm_ / custom_ table references to instance schema.
+// e.g. "CREATE TABLE cstm_orders" → "CREATE TABLE instance.cstm_orders"
+function qualifyInstanceTables(sql: string): string {
+  // Match cstm_ or custom_ table names that are NOT already prefixed with "instance."
+  return sql.replace(
+    /(?<!instance\.)(?<![a-z0-9_])((?:cstm_|custom_)[a-z0-9_]+)/gi,
+    "instance.$1"
+  );
+}
+
 export async function executeSqlTool(
   input: Record<string, unknown>,
   userRole: string
@@ -425,7 +435,9 @@ export async function executeSqlTool(
     return "Error: Only SUPERADMIN can execute raw SQL.";
   }
 
-  const sql = (input.sql as string).trim();
+  const rawSql = (input.sql as string).trim();
+  // Auto-qualify cstm_*/custom_* table refs to instance schema
+  const sql = qualifyInstanceTables(rawSql);
   const params = (input.params as unknown[]) || [];
 
   // Block modifications to core tables
@@ -436,8 +448,8 @@ export async function executeSqlTool(
     const tableMatch = sqlLower.match(/(?:alter|drop|truncate)\s+table\s+(?:if\s+exists\s+)?["']?(\w+)["']?/);
     if (tableMatch) {
       const tableName = tableMatch[1].toLowerCase();
-      if (!tableName.startsWith("custom_") && CORE_TABLES.includes(tableName)) {
-        return `Error: Cannot modify core table "${tableMatch[1]}". Only tables prefixed with "custom_" can be altered/dropped.`;
+      if (!tableName.startsWith("cstm_") && !tableName.startsWith("custom_") && CORE_TABLES.includes(tableName)) {
+        return `Error: Cannot modify core table "${tableMatch[1]}". Only tables prefixed with "cstm_" can be altered/dropped.`;
       }
     }
   }
@@ -453,6 +465,172 @@ export async function executeSqlTool(
     }
   } catch (err) {
     return `SQL Error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+// ─── Instance Page Tools ─────────────────────────────────────
+
+const SDK_REFERENCE = `Available in SDK scope:
+- React hooks: useState, useEffect, useCallback, useMemo
+- Data: useCstmQuery(table, {page, pageSize, sort, dir, search, filters}) → {data, columns, total, loading, error, refetch}
+- Mutations: useCstmMutation(table) → {create(data), update(id, data), remove(id), loading, error}
+- AI: useAI() → {ask(prompt, {context}), loading, lastResponse, error}
+- Utilities: sdk.notify(msg, type?), sdk.navigate("/p/slug"), sdk.formatDate(date, locale?), sdk.formatDateTime(date, locale?), sdk.formatCurrency(amount, currency?), sdk.formatNumber(n), sdk.download(url, filename), sdk.sendEmail(to, subject, body)
+- UI: Button, Input, Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, DataTable, StatCard, Select, Tabs, LoadingSpinner, EmptyState
+
+DataTable props: data, columns ({key, label, render?}), loading?, onRowClick?, className?
+StatCard props: label, value, description?, trend? ("up"|"down"|"neutral"), className?
+Select props: options ({value, label}[]), value, onChange, placeholder?, className?
+Tabs props: items ({label, content}[]), defaultIndex?, className?
+
+Code MUST end with: var __default__ = ComponentName;
+
+Example:
+function Dashboard() {
+  const { data, loading, total } = useCstmQuery("cstm_orders", { pageSize: 20, sort: "created_at", dir: "desc" });
+  const mutation = useCstmMutation("cstm_orders");
+  const ai = useAI();
+  const [analysis, setAnalysis] = React.useState(null);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard label="Total Orders" value={total} />
+      </div>
+      <Card>
+        <CardHeader><CardTitle>Orders</CardTitle></CardHeader>
+        <CardContent>
+          <DataTable data={data} loading={loading} columns={[
+            {key: "product", label: "Product"},
+            {key: "qty", label: "Qty"},
+            {key: "status", label: "Status", render: (v) => <Badge>{v}</Badge>}
+          ]} />
+        </CardContent>
+      </Card>
+      <Button onClick={async () => { const r = await ai.ask("Analyze orders", {context: data}); setAnalysis(r); }}>
+        AI Analysis
+      </Button>
+      {analysis && <Card><CardContent><p className="text-sm whitespace-pre-wrap">{analysis}</p></CardContent></Card>}
+    </div>
+  );
+}
+var __default__ = Dashboard;`;
+
+export function getInstancePageTools(): Tool[] {
+  return [
+    {
+      name: "create_instance_page",
+      description: `Create a new Instance page with custom React JSX code. Instance pages use the SDK for data, AI, and UI.
+
+${SDK_REFERENCE}`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          slug: { type: "string", description: "URL slug (lowercase, hyphens)" },
+          title: { type: "string", description: "Page title for sidebar menu" },
+          icon: { type: "string", description: "Lucide icon name (e.g. 'Package', 'Users')" },
+          code: { type: "string", description: "React JSX code using SDK. Must end with var __default__ = ComponentName;" },
+          published: { type: "boolean", description: "Show in sidebar (default true)" },
+        },
+        required: ["slug", "title", "code"],
+      },
+    },
+    {
+      name: "update_instance_page_code",
+      description: `Update the JSX code of an existing Instance page.
+
+${SDK_REFERENCE}`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          slug: { type: "string", description: "Page slug to update" },
+          code: { type: "string", description: "New JSX code" },
+          title: { type: "string" },
+          icon: { type: "string" },
+        },
+        required: ["slug", "code"],
+      },
+    },
+    {
+      name: "get_instance_page",
+      description: "Get the current JSX code of an Instance page by slug.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          slug: { type: "string" },
+        },
+        required: ["slug"],
+      },
+    },
+  ];
+}
+
+const MAX_CODE_SIZE = 50_000;
+
+export async function executeInstancePageTool(
+  name: string,
+  input: Record<string, unknown>
+): Promise<string> {
+  switch (name) {
+    case "create_instance_page": {
+      const code = input.code as string;
+      if (code.length > MAX_CODE_SIZE) {
+        return `Error: Code exceeds maximum size of ${MAX_CODE_SIZE} characters`;
+      }
+      try {
+        const page = await prisma.customPage.create({
+          data: {
+            slug: input.slug as string,
+            title: input.title as string,
+            icon: (input.icon as string) || null,
+            code,
+            config: {},
+            published: input.published !== false,
+          },
+        });
+        return JSON.stringify({ created: { slug: page.slug, title: page.title, id: page.id } });
+      } catch (err) {
+        return `Error creating instance page: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    case "update_instance_page_code": {
+      const code = input.code as string;
+      if (code.length > MAX_CODE_SIZE) {
+        return `Error: Code exceeds maximum size of ${MAX_CODE_SIZE} characters`;
+      }
+      const data: Record<string, unknown> = { code };
+      if (input.title !== undefined) data.title = input.title;
+      if (input.icon !== undefined) data.icon = input.icon;
+      try {
+        const page = await prisma.customPage.update({
+          where: { slug: input.slug as string },
+          data,
+        });
+        return JSON.stringify({ updated: { slug: page.slug, title: page.title } });
+      } catch (err) {
+        return `Error updating instance page: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    case "get_instance_page": {
+      try {
+        const page = await prisma.customPage.findUnique({
+          where: { slug: input.slug as string },
+        });
+        if (!page) return `Error: Page "${input.slug}" not found`;
+        return JSON.stringify(
+          { slug: page.slug, title: page.title, code: page.code, config: page.config },
+          null,
+          2
+        );
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    default:
+      return `Error: Unknown instance page tool "${name}"`;
   }
 }
 
@@ -483,7 +661,7 @@ export async function getSchemaContext(): Promise<string> {
       `SELECT t.table_name, c.column_name, c.data_type
        FROM information_schema.tables t
        JOIN information_schema.columns c ON c.table_name = t.table_name AND c.table_schema = t.table_schema
-       WHERE t.table_schema = 'public' AND t.table_name LIKE 'custom_%'
+       WHERE t.table_schema = 'instance' AND (t.table_name LIKE 'cstm_%' OR t.table_name LIKE 'custom_%')
        ORDER BY t.table_name, c.ordinal_position`
     );
     if (tables.length > 0) {

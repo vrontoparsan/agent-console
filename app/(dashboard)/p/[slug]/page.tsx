@@ -20,6 +20,7 @@ export default async function CustomPageRoute({
       slug={page.slug}
       title={page.title}
       config={page.config as Record<string, unknown>}
+      code={page.code}
     />
   );
 }
