@@ -58,6 +58,7 @@ export default function CronsPage() {
 
   if (editing) {
     return (
+      <div className="flex-1 overflow-auto">
       <div className="max-w-lg mx-auto py-8 px-6">
         <div className="flex items-center gap-3 mb-6">
           <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
@@ -85,10 +86,12 @@ export default function CronsPage() {
           </Button>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
+    <div className="flex-1 overflow-auto">
     <div className="max-w-2xl mx-auto py-8 px-6">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
@@ -122,6 +125,7 @@ export default function CronsPage() {
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }

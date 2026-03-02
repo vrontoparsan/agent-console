@@ -55,6 +55,7 @@ export default function CompanySettingsPage() {
   }
 
   return (
+    <div className="flex-1 overflow-auto">
     <div className="max-w-lg mx-auto py-8 px-6">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings">
@@ -92,6 +93,7 @@ export default function CompanySettingsPage() {
           )}
         </Button>
       </div>
+    </div>
     </div>
   );
 }

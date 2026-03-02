@@ -81,7 +81,7 @@ export default async function SettingsPage() {
   );
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-6">
+    <div className="flex-1 overflow-auto max-w-2xl mx-auto py-8 px-6 w-full">
       <h1 className="text-lg font-semibold tracking-tight mb-6">Settings</h1>
       <div className="grid gap-2">
         {visibleItems.map((item) => {

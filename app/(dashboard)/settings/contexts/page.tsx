@@ -94,6 +94,7 @@ export default function ContextsPage() {
 
   if (editing) {
     return (
+      <div className="flex-1 overflow-auto">
       <div className="max-w-2xl mx-auto py-8 px-6">
         <div className="flex items-center gap-3 mb-6">
           <Button variant="ghost" size="icon" onClick={() => setEditing(null)}>
@@ -158,10 +159,12 @@ export default function ContextsPage() {
           </Button>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
+    <div className="flex-1 overflow-auto">
     <div className="max-w-2xl mx-auto py-8 px-6">
       <div className="flex items-center gap-3 mb-6">
         <Link href="/settings">
@@ -261,6 +264,7 @@ export default function ContextsPage() {
           ))}
         </div>
       )}
+    </div>
     </div>
   );
 }
