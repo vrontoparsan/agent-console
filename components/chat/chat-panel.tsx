@@ -304,11 +304,9 @@ export function ChatPanel({
       {/* Input */}
       <ChatInput onSend={handleSend} disabled={streaming} />
       {streaming && (
-        <div className="px-4 pb-1">
-          <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-            Processing...
-          </span>
+        <div className="px-4 py-1.5 bg-muted/30 flex items-center gap-2">
+          <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          <span className="text-[11px] text-muted-foreground">Agent pracuje...</span>
         </div>
       )}
     </div>

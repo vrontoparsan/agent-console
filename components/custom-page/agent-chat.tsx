@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Send, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarkdownContent } from "@/components/chat/markdown";
 
 type Message = {
   id: string;
@@ -325,6 +326,8 @@ export function AgentChat({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   <span className="text-xs">Agent is working...</span>
                 </span>
+              ) : msg.role === "assistant" ? (
+                <MarkdownContent content={msg.content} />
               ) : (
                 <p className="whitespace-pre-wrap">{msg.content}</p>
               )}
@@ -332,6 +335,14 @@ export function AgentChat({
           </div>
         ))}
       </div>
+
+      {/* Status bar when agent is working */}
+      {loading && (
+        <div className="border-t border-border px-4 py-1.5 bg-muted/30 flex items-center gap-2">
+          <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          <span className="text-[11px] text-muted-foreground">Agent pracuje...</span>
+        </div>
+      )}
 
       {/* Input */}
       <div className="border-t border-border px-4 py-3">

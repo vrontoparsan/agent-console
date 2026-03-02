@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { User, Bot } from "lucide-react";
+import { MarkdownContent } from "./markdown";
 
 type ChatMessageProps = {
   message: {
@@ -34,7 +35,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
             : "bg-card border border-border"
         )}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <MarkdownContent content={message.content} />
+        )}
       </div>
     </div>
   );
