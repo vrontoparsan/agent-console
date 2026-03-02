@@ -174,6 +174,7 @@ export async function agenticChat({
   executeTool,
   onEvent,
   onText,
+  onLoopComplete,
   maxLoops = 25,
 }: {
   messages: MessageParam[];
@@ -182,6 +183,7 @@ export async function agenticChat({
   executeTool: (name: string, input: Record<string, unknown>) => Promise<string>;
   onEvent?: (event: { type: string; data: string }) => void;
   onText?: (delta: string) => void;
+  onLoopComplete?: (currentText: string) => Promise<void>;
   maxLoops?: number;
 }): Promise<string> {
   const history: MessageParam[] = [...messages];
@@ -275,6 +277,9 @@ export async function agenticChat({
       role: "user",
       content: toolResults,
     });
+
+    // Notify caller of loop progress (for intermediate DB saves)
+    await onLoopComplete?.(finalText);
   }
 
   return finalText;

@@ -15,6 +15,7 @@ import {
   getSchemaContext,
 } from "@/lib/agent-tools/db-tools";
 import { UI_AGENT_SYSTEM_PROMPT, PAGE_EDITOR_CONTEXT } from "@/lib/instance/configurator-prompt";
+import { activeTasks } from "@/lib/agent-tasks";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -48,6 +49,29 @@ export async function GET(req: NextRequest) {
       createdAt: true,
     },
   });
+
+  // Staleness detection: if last assistant message is stuck processing
+  if (messages.length > 0) {
+    const last = messages[messages.length - 1];
+    const meta = last.metadata as Record<string, unknown> | null;
+    if (last.role === "assistant" && meta?.processing === true) {
+      const startedAt = meta.processingStartedAt
+        ? new Date(meta.processingStartedAt as string).getTime()
+        : 0;
+      const isStale = Date.now() - startedAt > 150_000; // 2.5 minutes
+      const isStillRunning = activeTasks.has(last.id);
+
+      if (isStale && !isStillRunning) {
+        // Auto-resolve stale message
+        const updatedMeta = { ...meta, processing: false, error: true, timedOut: true };
+        await prisma.message.update({
+          where: { id: last.id },
+          data: { metadata: updatedMeta },
+        });
+        last.metadata = updatedMeta;
+      }
+    }
+  }
 
   return NextResponse.json({ messages });
 }
@@ -229,90 +253,155 @@ Important:
 - Format data in clean tables or lists for readability
 - When the user asks to see data, query it — don't make up data`;
 
-    // Track tool events and page creation for persistence
+    // 3. Create assistant placeholder for background processing
+    const assistantMsg = await prisma.message.create({
+      data: {
+        content: "",
+        role: "assistant",
+        customPageId: customPageId || null,
+        threadId: !customPageId ? (threadId || null) : null,
+        metadata: {
+          processing: true,
+          processingStartedAt: new Date().toISOString(),
+        },
+      },
+    });
+
+    // Track tool events and page creation
     const toolEvents: string[] = [];
     let createdPage: { id: string; slug: string; title: string } | null = null;
+    let streamClosed = false;
 
     const encoder = new TextEncoder();
+
     const stream = new ReadableStream({
-      async start(controller) {
-        try {
-          const result = await agenticChat({
-            messages: chatMessages,
-            systemPrompt,
-            tools,
-            executeTool: async (name, input) => {
-              let toolResult: string;
+      start(controller) {
+        function safeEnqueue(data: string) {
+          if (streamClosed) return;
+          try {
+            controller.enqueue(encoder.encode(data));
+          } catch {
+            streamClosed = true;
+          }
+        }
 
-              if (["query_data", "count_records", "create_record", "update_records", "delete_records"].includes(name)) {
-                toolResult = await executeDbTool(name, input, userRole);
-              } else if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
-                toolResult = await executePageTool(name, input);
-              } else if (["create_instance_page", "update_instance_page_code", "get_instance_page", "verify_instance_code", "introspect_table", "list_instance_pages_code"].includes(name)) {
-                toolResult = await executeInstancePageTool(name, input);
-              } else if (name === "execute_sql") {
-                toolResult = await executeSqlTool(input, userRole);
-              } else {
-                toolResult = `Error: Unknown tool "${name}"`;
-              }
+        // Send message ID so client can poll for this specific message
+        safeEnqueue(`messageId:${assistantMsg.id}\n`);
 
-              // Detect page creation → link orphan thread
-              if ((name === "create_page" || name === "create_instance_page") && threadId && !customPageId) {
-                try {
-                  const parsed = JSON.parse(toolResult);
-                  if (parsed.created?.id) {
-                    createdPage = {
-                      id: parsed.created.id,
-                      slug: parsed.created.slug || (input.slug as string),
-                      title: parsed.created.title || (input.title as string),
-                    };
-                    // Link all orphan thread messages to the new page
-                    await prisma.message.updateMany({
-                      where: { threadId },
-                      data: { customPageId: parsed.created.id, threadId: null },
-                    });
-                    customPageId = parsed.created.id;
-                  }
-                } catch { /* ignore parse errors */ }
-              }
+        // Register active task
+        activeTasks.set(assistantMsg.id, { startedAt: Date.now() });
 
-              return toolResult;
-            },
-            onEvent: (event) => {
-              toolEvents.push(event.data);
-              controller.enqueue(encoder.encode(`event:${JSON.stringify(event)}\n`));
-            },
-            onText: (delta) => {
-              controller.enqueue(encoder.encode(`text:${JSON.stringify(delta)}\n`));
-            },
-          });
+        // Fire-and-forget: processing continues even if stream closes
+        (async () => {
+          try {
+            const result = await agenticChat({
+              messages: chatMessages,
+              systemPrompt,
+              tools,
+              executeTool: async (name, input) => {
+                let toolResult: string;
 
-          // Save assistant response to DB
-          if (hasThread || customPageId) {
-            await prisma.message.create({
-              data: {
-                content: result,
-                role: "assistant",
-                customPageId: customPageId || null,
-                threadId: !customPageId ? (threadId || null) : null,
-                metadata: toolEvents.length > 0 ? { toolEvents } : undefined,
+                if (["query_data", "count_records", "create_record", "update_records", "delete_records"].includes(name)) {
+                  toolResult = await executeDbTool(name, input, userRole);
+                } else if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
+                  toolResult = await executePageTool(name, input);
+                } else if (["create_instance_page", "update_instance_page_code", "get_instance_page", "verify_instance_code", "introspect_table", "list_instance_pages_code"].includes(name)) {
+                  toolResult = await executeInstancePageTool(name, input);
+                } else if (name === "execute_sql") {
+                  toolResult = await executeSqlTool(input, userRole);
+                } else {
+                  toolResult = `Error: Unknown tool "${name}"`;
+                }
+
+                // Detect page creation → link orphan thread
+                if ((name === "create_page" || name === "create_instance_page") && threadId && !customPageId) {
+                  try {
+                    const parsed = JSON.parse(toolResult);
+                    if (parsed.created?.id) {
+                      createdPage = {
+                        id: parsed.created.id,
+                        slug: parsed.created.slug || (input.slug as string),
+                        title: parsed.created.title || (input.title as string),
+                      };
+                      // Link all orphan thread messages to the new page
+                      await prisma.message.updateMany({
+                        where: { threadId },
+                        data: { customPageId: parsed.created.id, threadId: null },
+                      });
+                      customPageId = parsed.created.id;
+                    }
+                  } catch { /* ignore parse errors */ }
+                }
+
+                return toolResult;
+              },
+              onEvent: (event) => {
+                toolEvents.push(event.data);
+                safeEnqueue(`event:${JSON.stringify(event)}\n`);
+              },
+              onText: (delta) => {
+                safeEnqueue(`text:${JSON.stringify(delta)}\n`);
+              },
+              onLoopComplete: async (currentText) => {
+                // Intermediate save: update message with progress
+                const startedAt = (assistantMsg.metadata as Record<string, string>)?.processingStartedAt || new Date().toISOString();
+                await prisma.message.update({
+                  where: { id: assistantMsg.id },
+                  data: {
+                    content: currentText,
+                    metadata: {
+                      processing: true,
+                      processingStartedAt: startedAt,
+                      toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined,
+                    },
+                  },
+                });
               },
             });
-          }
 
-          // Notify client about page creation
-          if (createdPage) {
-            controller.enqueue(encoder.encode(`pageCreated:${JSON.stringify(createdPage)}\n`));
-          }
+            // Final save: mark processing complete
+            await prisma.message.update({
+              where: { id: assistantMsg.id },
+              data: {
+                content: result,
+                metadata: {
+                  processing: false,
+                  toolEvents: toolEvents.length > 0 ? [...toolEvents] : undefined,
+                },
+              },
+            });
 
-          controller.enqueue(encoder.encode(`result:${result}\n`));
-          controller.close();
-        } catch (err) {
-          controller.enqueue(
-            encoder.encode(`error:${err instanceof Error ? err.message : "Unknown error"}\n`)
-          );
-          controller.close();
-        }
+            // Notify client about page creation
+            if (createdPage) {
+              safeEnqueue(`pageCreated:${JSON.stringify(createdPage)}\n`);
+            }
+
+            safeEnqueue(`result:${result}\n`);
+            if (!streamClosed) {
+              try { controller.close(); } catch { /* already closed */ }
+            }
+          } catch (err) {
+            const errorMsg = err instanceof Error ? err.message : "Unknown error";
+            // Save error to DB
+            await prisma.message.update({
+              where: { id: assistantMsg.id },
+              data: {
+                content: `Error: ${errorMsg}`,
+                metadata: { processing: false, error: true },
+              },
+            });
+            safeEnqueue(`error:${errorMsg}\n`);
+            if (!streamClosed) {
+              try { controller.close(); } catch { /* already closed */ }
+            }
+          } finally {
+            activeTasks.delete(assistantMsg.id);
+          }
+        })(); // NOT awaited — fire and forget
+      },
+      cancel() {
+        // Client disconnected — processing continues in background
+        streamClosed = true;
       },
     });
 
