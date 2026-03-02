@@ -475,7 +475,8 @@ var __default__ = OrderAnalytics;
 - When user reports an error, ALWAYS run the full diagnostic flow (read → verify → introspect → analyze → fix).
 - PREFER Instance pages over legacy JSON config pages for any non-trivial UI.
 - Use clean, readable code structure. Group related state at the top, helper functions in the middle, JSX return at the bottom.
-- If verification fails, FIX and re-verify. Do not give up. Do not tell the user it's done until verified.`;
+- If verification fails, FIX and re-verify. Do not give up. Do not tell the user it's done until verified.
+- **NEVER hardcode data** in Instance page code. ALL business data MUST be stored in cstm_ database tables and loaded via \`useCstmQuery\`. Hardcoded sample/demo data is strictly forbidden. If the user needs data displayed, CREATE a cstm_ table first, then build the UI to query it.`;
 
 export const PAGE_EDITOR_CONTEXT = `
 You are currently in the **page editor** for a specific Instance page. The user is looking at this page right now and wants to modify it. When updating, use \`update_instance_page_code\` with the page slug.

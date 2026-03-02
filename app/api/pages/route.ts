@@ -105,6 +105,27 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+// PUT: Update a section's title
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id, title } = await req.json();
+  if (!id || !title || typeof title !== "string") {
+    return NextResponse.json({ error: "ID and title are required" }, { status: 400 });
+  }
+
+  const page = await prisma.customPage.update({
+    where: { id },
+    data: { title: title.trim() },
+  });
+
+  return NextResponse.json(page);
+}
+
 // PATCH: Batch reorder sections (update order and categoryId)
 export async function PATCH(req: NextRequest) {
   const session = await auth();

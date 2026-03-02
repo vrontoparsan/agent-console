@@ -23,6 +23,21 @@ export async function GET(req: NextRequest) {
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (session.user.role !== "SUPERADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // List instance tables
+  if (req.nextUrl.searchParams.get("list") === "instance") {
+    try {
+      const rows = await prisma.$queryRaw<{ table_name: string }[]>`
+        SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'instance'
+        AND (table_name LIKE 'cstm_%' OR table_name LIKE 'custom_%')
+        ORDER BY table_name
+      `;
+      return NextResponse.json(rows.map((r) => r.table_name));
+    } catch {
+      return NextResponse.json([]);
+    }
+  }
+
   const table = req.nextUrl.searchParams.get("table") || "Event";
   const page = parseInt(req.nextUrl.searchParams.get("page") || "1");
   const pageSize = Math.min(

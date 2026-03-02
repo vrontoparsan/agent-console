@@ -226,7 +226,7 @@ export async function agenticChat({
     }
 
     if (textParts.length > 0) {
-      finalText = textParts.join("");
+      finalText += textParts.join("");
     }
 
     // If no tool calls and not cut off mid-response, we're done

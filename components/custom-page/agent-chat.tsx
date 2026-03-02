@@ -221,7 +221,9 @@ export function AgentChat({
               /* skip malformed events */
             }
           } else if (line.startsWith("result:")) {
-            assistantText = line.slice(7);
+            // Use result only if we missed streaming (fallback)
+            const resultText = line.slice(7);
+            if (!assistantText) assistantText = resultText;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -257,7 +259,8 @@ export function AgentChat({
       // Process any remaining buffer
       if (buffer) {
         if (buffer.startsWith("result:")) {
-          assistantText = buffer.slice(7);
+          const resultText = buffer.slice(7);
+          if (!assistantText) assistantText = resultText;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId

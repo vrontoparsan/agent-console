@@ -14,6 +14,9 @@ import {
   GripVertical,
   ChevronDown,
   ChevronRight,
+  Pencil,
+  Check,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -58,12 +61,16 @@ function SortableSectionRow({
   indented,
   deleting,
   onDelete,
+  onRename,
 }: {
   section: Section;
   indented?: boolean;
   deleting: string | null;
   onDelete: (id: string, title: string) => void;
+  onRename: (id: string, newTitle: string) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(section.title);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: section.id });
 
@@ -71,6 +78,14 @@ function SortableSectionRow({
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  function handleSave() {
+    const trimmed = editTitle.trim();
+    if (trimmed && trimmed !== section.title) {
+      onRename(section.id, trimmed);
+    }
+    setEditing(false);
+  }
 
   return (
     <div
@@ -91,35 +106,70 @@ function SortableSectionRow({
       </button>
       <FileText className="h-4 w-4 text-primary shrink-0" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{section.title}</span>
-          {section.published ? (
-            <Badge variant="default" className="text-[10px] h-5">Pub</Badge>
-          ) : (
-            <Badge variant="secondary" className="text-[10px] h-5">Draft</Badge>
-          )}
-        </div>
-        <span className="text-[11px] text-muted-foreground">/p/{section.slug}</span>
-      </div>
-      <Link href={`/p/${section.slug}`}>
-        <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
-          <ExternalLink className="h-3 w-3" />
-          Otvoriť
-        </Button>
-      </Link>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 text-muted-foreground hover:text-destructive"
-        onClick={() => onDelete(section.id, section.title)}
-        disabled={deleting === section.id}
-      >
-        {deleting === section.id ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {editing ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") { setEditing(false); setEditTitle(section.title); }
+              }}
+              className="h-7 text-sm"
+              autoFocus
+            />
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={handleSave}>
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => { setEditing(false); setEditTitle(section.title); }}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         ) : (
-          <Trash2 className="h-3.5 w-3.5" />
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium truncate">{section.title}</span>
+              {section.published ? (
+                <Badge variant="default" className="text-[10px] h-5">Pub</Badge>
+              ) : (
+                <Badge variant="secondary" className="text-[10px] h-5">Draft</Badge>
+              )}
+            </div>
+            <span className="text-[11px] text-muted-foreground">/p/{section.slug}</span>
+          </>
         )}
-      </Button>
+      </div>
+      {!editing && (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+            onClick={() => { setEditTitle(section.title); setEditing(true); }}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Link href={`/p/${section.slug}`}>
+            <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
+              <ExternalLink className="h-3 w-3" />
+              Otvoriť
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(section.id, section.title)}
+            disabled={deleting === section.id}
+          >
+            {deleting === section.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </>
+      )}
     </div>
   );
 }
@@ -130,12 +180,14 @@ function SortableCategoryGroup({
   deleting,
   onDeleteSection,
   onDeleteCategory,
+  onRenameSection,
   allSectionIds,
 }: {
   category: Category;
   deleting: string | null;
   onDeleteSection: (id: string, title: string) => void;
   onDeleteCategory: (id: string, name: string) => void;
+  onRenameSection: (id: string, newTitle: string) => void;
   allSectionIds: string[];
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -187,6 +239,7 @@ function SortableCategoryGroup({
                 indented
                 deleting={deleting}
                 onDelete={onDeleteSection}
+                onRename={onRenameSection}
               />
             ))}
           </SortableContext>
@@ -307,6 +360,17 @@ export default function ManageSectionsPage() {
     setDeleting(null);
   }
 
+  async function handleRenameSection(id: string, newTitle: string) {
+    try {
+      await fetch("/api/pages", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, title: newTitle }),
+      });
+      await loadData();
+    } catch { /* ignore */ }
+  }
+
   async function handleDeleteCategory(id: string, name: string) {
     if (!confirm(`Vymazať kategóriu "${name}"? Sekcie budú presunuté do nekategorizovaných.`)) return;
     try {
@@ -340,7 +404,7 @@ export default function ManageSectionsPage() {
     const activeId = String(active.id);
     const overId = String(over.id);
 
-    // Category reorder
+    // Category reorder (cat dragged onto cat)
     if (activeId.startsWith("cat-") && overId.startsWith("cat-")) {
       const oldIdx = categories.findIndex((c) => `cat-${c.id}` === activeId);
       const newIdx = categories.findIndex((c) => `cat-${c.id}` === overId);
@@ -357,7 +421,35 @@ export default function ManageSectionsPage() {
       return;
     }
 
-    // Section reorder (flat: uncategorized + all category pages)
+    // Section dropped onto a category header → move into that category
+    if (!activeId.startsWith("cat-") && overId.startsWith("cat-")) {
+      const targetCatId = overId.replace("cat-", "");
+
+      // Build full section list with updated categoryId
+      const allSections = [
+        ...uncategorized.map((s) => ({ ...s, categoryId: null as string | null })),
+        ...categories.flatMap((c) =>
+          c.pages.map((p) => ({ ...p, categoryId: c.id }))
+        ),
+      ];
+
+      const movedSection = allSections.find((s) => s.id === activeId);
+      if (!movedSection) return;
+      movedSection.categoryId = targetCatId;
+
+      await fetch("/api/pages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          allSections.map((s, i) => ({ id: s.id, order: i, categoryId: s.categoryId }))
+        ),
+      });
+
+      await loadData();
+      return;
+    }
+
+    // Section reorder (section onto section)
     if (!activeId.startsWith("cat-") && !overId.startsWith("cat-")) {
       // Build flat list of all sections
       const allSections = [
@@ -373,19 +465,9 @@ export default function ManageSectionsPage() {
 
       const reordered = arrayMove(allSections, oldIdx, newIdx);
 
-      // Determine new categoryId: the moved item takes the category of its new neighbor
-      const movedItem = reordered[newIdx];
-      // Find which category section the item landed near
-      let newCategoryId: string | null = null;
-      if (newIdx > 0) {
-        newCategoryId = reordered[newIdx - 1].categoryId;
-      }
-      // Or if dropped at position 0 and it's in uncategorized area
-      if (newIdx === 0 && uncategorized.length > 0) {
-        newCategoryId = null;
-      }
-
-      movedItem.categoryId = newCategoryId;
+      // The moved item takes the category of the item it landed on
+      const overSection = allSections[newIdx];
+      reordered[newIdx].categoryId = overSection.categoryId;
 
       // Save to API
       await fetch("/api/pages", {
@@ -534,6 +616,7 @@ export default function ManageSectionsPage() {
                       section={section}
                       deleting={deleting}
                       onDelete={handleDeleteSection}
+                      onRename={handleRenameSection}
                     />
                   ))}
 
@@ -545,6 +628,7 @@ export default function ManageSectionsPage() {
                       deleting={deleting}
                       onDeleteSection={handleDeleteSection}
                       onDeleteCategory={handleDeleteCategory}
+                      onRenameSection={handleRenameSection}
                       allSectionIds={allSectionIds}
                     />
                   ))}

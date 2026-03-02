@@ -12,10 +12,12 @@ import {
   Search,
   Database,
   MessageSquare,
+  Boxes,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { AgentChat } from "@/components/custom-page/agent-chat";
 
-const tables = [
+const coreTables = [
   { key: "Event", label: "Events" },
   { key: "User", label: "Users" },
   { key: "EventAction", label: "Actions" },
@@ -39,7 +41,16 @@ export default function DataPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
+  const [instanceTables, setInstanceTables] = useState<string[]>([]);
   const pageSize = 25;
+
+  // Load instance tables on mount
+  useEffect(() => {
+    fetch("/api/data?list=instance")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setInstanceTables)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -100,33 +111,67 @@ export default function DataPage() {
   return (
     <div className="flex-1 flex">
       {/* Left sidebar - table list */}
-      <div className="w-48 border-r border-border flex flex-col">
+      <div className="w-52 border-r border-border flex flex-col">
         <div className="px-3 py-3 border-b border-border">
           <div className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
             <Database className="h-4 w-4" />
             Tables
           </div>
         </div>
-        <nav className="flex-1 p-2 space-y-0.5">
-          {tables.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => {
-                setSelectedTable(t.key);
-                setPage(1);
-                setSearch("");
-              }}
-              className={cn(
-                "w-full text-left px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
-                selectedTable === t.key
-                  ? "bg-primary/10 text-primary font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+        <ScrollArea className="flex-1">
+          <nav className="p-2 space-y-0.5">
+            <div className="px-2 pt-1 pb-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">Core</span>
+            </div>
+            {coreTables.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => {
+                  setSelectedTable(t.key);
+                  setPage(1);
+                  setSearch("");
+                }}
+                className={cn(
+                  "w-full text-left px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
+                  selectedTable === t.key
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+
+            {instanceTables.length > 0 && (
+              <>
+                <div className="px-2 pt-3 pb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 flex items-center gap-1.5">
+                    <Boxes className="h-3 w-3" />
+                    Instance
+                  </span>
+                </div>
+                {instanceTables.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => {
+                      setSelectedTable(t);
+                      setPage(1);
+                      setSearch("");
+                    }}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-md text-sm transition-colors cursor-pointer",
+                      selectedTable === t
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </>
+            )}
+          </nav>
+        </ScrollArea>
       </div>
 
       {/* Main content - data table */}
@@ -135,7 +180,12 @@ export default function DataPage() {
         <div className="border-b border-border px-4 py-3 flex items-center gap-3">
           <h2 className="text-sm font-semibold flex items-center gap-2">
             <Table2 className="h-4 w-4" />
-            {tables.find((t) => t.key === selectedTable)?.label}
+            {coreTables.find((t) => t.key === selectedTable)?.label || selectedTable}
+            {selectedTable.startsWith("cstm_") || selectedTable.startsWith("custom_") ? (
+              <Badge variant="outline" className="text-[10px] h-4 font-normal">Instance</Badge>
+            ) : (
+              <Badge variant="secondary" className="text-[10px] h-4 font-normal">Core</Badge>
+            )}
           </h2>
           <button
             onClick={() => setMode("chat")}
