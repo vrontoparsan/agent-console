@@ -17,6 +17,8 @@ import {
   Sun,
   Moon,
   LayoutDashboard,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 const navItems = [
@@ -29,7 +31,118 @@ type CustomPageNav = {
   slug: string;
   title: string;
   icon: string | null;
+  categoryId?: string | null;
+  category?: { id: string; name: string } | null;
 };
+
+function NavPages({
+  pages,
+  pathname,
+  onNavigate,
+}: {
+  pages: CustomPageNav[];
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(localStorage.getItem("nav-collapsed") || "{}");
+    } catch { return {}; }
+  });
+
+  function toggleCategory(catId: string) {
+    setCollapsed((prev) => {
+      const next = { ...prev, [catId]: !prev[catId] };
+      try { localStorage.setItem("nav-collapsed", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  // Group pages by category
+  const uncategorized = pages.filter((p) => !p.categoryId);
+  const categoryMap = new Map<string, { name: string; pages: CustomPageNav[] }>();
+  for (const page of pages) {
+    if (page.categoryId && page.category) {
+      const existing = categoryMap.get(page.categoryId);
+      if (existing) {
+        existing.pages.push(page);
+      } else {
+        categoryMap.set(page.categoryId, { name: page.category.name, pages: [page] });
+      }
+    }
+  }
+
+  return (
+    <>
+      <div className="pt-3 pb-1 px-3">
+        <span className="text-xs font-medium text-muted-foreground/50 uppercase tracking-wider">
+          Pages
+        </span>
+      </div>
+      {/* Uncategorized pages */}
+      {uncategorized.map((page) => {
+        const isActive = pathname === `/p/${page.slug}`;
+        return (
+          <Link
+            key={page.slug}
+            href={`/p/${page.slug}`}
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              isActive
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            <LayoutDashboard className="h-4 w-4" />
+            {page.title}
+          </Link>
+        );
+      })}
+      {/* Category groups */}
+      {Array.from(categoryMap.entries()).map(([catId, cat]) => {
+        const isCollapsed = !!collapsed[catId];
+        const hasActivePage = cat.pages.some((p) => pathname === `/p/${p.slug}`);
+        return (
+          <div key={catId}>
+            <button
+              onClick={() => toggleCategory(catId)}
+              className={cn(
+                "w-full flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium uppercase tracking-wider transition-colors cursor-pointer",
+                hasActivePage
+                  ? "text-primary"
+                  : "text-muted-foreground/70 hover:text-muted-foreground"
+              )}
+            >
+              {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              {cat.name}
+            </button>
+            {!isCollapsed && cat.pages.map((page) => {
+              const isActive = pathname === `/p/${page.slug}`;
+              return (
+                <Link
+                  key={page.slug}
+                  href={`/p/${page.slug}`}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg pl-7 pr-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  )}
+                >
+                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  {page.title}
+                </Link>
+              );
+            })}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 
 function NavContent({
   onNavigate,
@@ -87,34 +200,9 @@ function NavContent({
           );
         })}
 
-        {/* Custom pages separator */}
+        {/* Custom pages with categories */}
         {customPages.length > 0 && (
-          <>
-            <div className="pt-3 pb-1 px-3">
-              <span className="text-xs font-medium text-muted-foreground/50 uppercase tracking-wider">
-                Pages
-              </span>
-            </div>
-            {customPages.map((page) => {
-              const isActive = pathname === `/p/${page.slug}`;
-              return (
-                <Link
-                  key={page.slug}
-                  href={`/p/${page.slug}`}
-                  onClick={onNavigate}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                  )}
-                >
-                  <LayoutDashboard className="h-4 w-4" />
-                  {page.title}
-                </Link>
-              );
-            })}
-          </>
+          <NavPages pages={customPages} pathname={pathname} onNavigate={onNavigate} />
         )}
       </nav>
 

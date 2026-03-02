@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
   if (["SUPERADMIN", "ADMIN"].includes(userRole)) {
     const pages = await prisma.customPage.findMany({
       where: showAll ? {} : { published: true },
-      select: { id: true, slug: true, title: true, icon: true, order: true, published: true, code: true },
+      select: { id: true, slug: true, title: true, icon: true, order: true, published: true, code: true, categoryId: true, category: { select: { id: true, name: true } } },
       orderBy: { order: "asc" },
     });
     return NextResponse.json(pages);
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     where: showAll
       ? { id: { in: pageIds } }
       : { published: true, id: { in: pageIds } },
-    select: { id: true, slug: true, title: true, icon: true, order: true, published: true, code: true },
+    select: { id: true, slug: true, title: true, icon: true, order: true, published: true, code: true, categoryId: true, category: { select: { id: true, name: true } } },
     orderBy: { order: "asc" },
   });
 
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { title } = await req.json();
+  const { title, categoryId } = await req.json();
   if (!title || typeof title !== "string") {
     return NextResponse.json({ error: "Title is required" }, { status: 400 });
   }
@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
       config: {},
       published: false,
       order: (maxOrder._max.order || 0) + 1,
+      categoryId: categoryId || null,
     },
   });
 
@@ -100,6 +101,28 @@ export async function DELETE(req: NextRequest) {
   await prisma.userPageAccess.deleteMany({ where: { pageId: id } });
   // Delete the page
   await prisma.customPage.delete({ where: { id } });
+
+  return NextResponse.json({ ok: true });
+}
+
+// PATCH: Batch reorder sections (update order and categoryId)
+export async function PATCH(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const items: { id: string; order: number; categoryId: string | null }[] = await req.json();
+
+  await prisma.$transaction(
+    items.map((item) =>
+      prisma.customPage.update({
+        where: { id: item.id },
+        data: { order: item.order, categoryId: item.categoryId },
+      })
+    )
+  );
 
   return NextResponse.json({ ok: true });
 }

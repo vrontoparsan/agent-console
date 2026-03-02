@@ -50,7 +50,8 @@ app/
     files/parse/          # File parsing (PDF, DOCX, XLSX, images)
     instance/ai/          # Instance AI endpoint
     instance/email/       # Instance email sending
-    pages/route.ts        # Custom pages list + create + delete
+    pages/route.ts        # Custom pages list + create + delete + reorder (PATCH)
+    pages/categories/     # Section categories CRUD + reorder
     settings/             # All settings endpoints
     ui-chat/route.ts      # UI Agent/page-editor chat with threads
     ui-chat/threads/      # Thread list for UI Agent
@@ -61,7 +62,7 @@ app/
     data/                 # Data browser
     p/[slug]/             # Dynamic custom pages
     settings/             # All settings pages
-      sections/           # Manage sections (create, delete, list)
+      sections/           # Manage sections (DnD tree, categories, admin toggle)
 
 components/
   ui/                     # shadcn/ui primitives (Button, Input, Badge, Card, etc.)
@@ -112,7 +113,9 @@ Dockerfile                # Multi-stage Docker build
 
 **Message** — content, role (user/assistant), eventId? (event chat), customPageId? (UI Agent thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for UI Agent)
 
-**CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published, order
+**CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published, order, categoryId? (→ SectionCategory)
+
+**SectionCategory** — name, order (for sidebar grouping of custom pages)
 
 **EventAction** — eventId, title, description, status (SUGGESTED→COMPLETED), aiSuggested, result
 
@@ -120,7 +123,7 @@ Dockerfile                # Multi-stage Docker build
 
 **AgentContext** — name, type (PERMANENT/CONDITIONAL), content (markdown), enabled, order
 
-**CompanyInfo** — name, ico, dic, icDph, address, email, phone, web, extra (singleton id="default")
+**CompanyInfo** — name, ico, dic, icDph, address, email, phone, web, extra (singleton id="default", extra.allowAdminUIAgent controls ADMIN access to UI Agent)
 
 **CronJob** — name, schedule, action, enabled, lastRun, nextRun
 
@@ -184,7 +187,7 @@ Dockerfile                # Multi-stage Docker build
 ### Two Chat Contexts
 
 1. **Main Chat** (`/api/chat`) — general business chat, event-specific conversations, persistent via Message model with eventId
-2. **UI Chat** (`/api/ui-chat`) — UI Agent and page-editor, persistent via Message model with customPageId, threaded per section
+2. **UI Chat** (`/api/ui-chat`) — UI Agent and page-editor, persistent via Message model with customPageId, threaded per section. Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages.
 
 ---
 
@@ -221,6 +224,10 @@ React component renders with SDK hooks and components
 - New sections use temporary threadId until page is created
 - When agent creates page, orphan messages auto-link to new page
 - Page editor (wand button on pages, right-side panel) shares the same thread
+- Wand button visible to SUPERADMIN by default; ADMIN access controlled by `CompanyInfo.extra.allowAdminUIAgent`
+- Sections managed in `/settings/sections` with drag-and-drop tree (uses @dnd-kit)
+- Sections can be organized into collapsible categories (SectionCategory model)
+- Sidebar groups sections by category with collapsible headers (localStorage state)
 - History loaded on mount, full context sent to agent (80 messages)
 - System prompt includes current page code inline
 
@@ -333,8 +340,10 @@ ADMIN_PASSWORD            # Initial admin password
 | Main chat API | `app/api/chat/route.ts` |
 | UI Agent chat API | `app/api/ui-chat/route.ts` |
 | Custom table CRUD API | `app/api/cstm/route.ts` |
+| Pages + categories API | `app/api/pages/route.ts`, `app/api/pages/categories/route.ts` |
 | Sidebar navigation | `components/layout/nav.tsx` |
 | AgentChat component | `components/custom-page/agent-chat.tsx` |
+| Manage sections (DnD) | `app/(dashboard)/settings/sections/page.tsx` |
 | Main chat panel | `components/chat/chat-panel.tsx` |
 | Markdown renderer | `components/chat/markdown.tsx` |
 | Dockerfile | `Dockerfile` |

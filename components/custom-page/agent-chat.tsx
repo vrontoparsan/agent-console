@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Button } from "@/components/ui/button";
-import { Loader2, Send, Wrench } from "lucide-react";
+import { Loader2, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/chat/markdown";
+import { ChatInput, type AttachedFile } from "@/components/chat/chat-input";
 
 type Message = {
   id: string;
@@ -35,11 +35,9 @@ export function AgentChat({
   className?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Load thread history on mount / thread change
   useEffect(() => {
@@ -88,17 +86,22 @@ export function AgentChat({
 
   const initialMessageSentRef = useRef(false);
 
-  const handleSend = useCallback(async (overrideText?: string) => {
-    const text = (overrideText || input).trim();
+  const handleSend = useCallback(async (content: string, attachedFiles?: AttachedFile[]) => {
+    const text = content.trim();
     if (!text || loading) return;
 
-    if (!overrideText) setInput("");
+    // Build display content for user message
+    const fileNames = attachedFiles?.map((f) => f.name) || [];
+    const displayContent = fileNames.length > 0
+      ? `${text}\n\n📎 ${fileNames.join(", ")}`
+      : text;
+
     setLoading(true);
 
     const userMsg: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: text,
+      content: displayContent,
     };
     const assistantId = `assistant-${Date.now()}`;
     const assistantMsg: Message = {
@@ -109,15 +112,62 @@ export function AgentChat({
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
 
     try {
+      // Process file attachments
+      let fileContext = "";
+      const imageAttachments: { name: string; base64: string; mediaType: string }[] = [];
+
+      if (attachedFiles && attachedFiles.length > 0) {
+        const docFiles = attachedFiles.filter((f) => f.type === "document");
+        const imgFiles = attachedFiles.filter((f) => f.type === "image");
+
+        // Parse documents via API
+        if (docFiles.length > 0) {
+          const formData = new FormData();
+          for (const f of docFiles) {
+            formData.append("files", f.file);
+          }
+          const parseRes = await fetch("/api/files/parse", { method: "POST", body: formData });
+          if (parseRes.ok) {
+            const parseData = await parseRes.json();
+            for (const f of parseData.files || []) {
+              if (f.content) {
+                fileContext += `\n\n--- File: ${f.filename} ---\n${f.content.slice(0, 30000)}`;
+              } else if (f.error) {
+                fileContext += `\n\n--- File: ${f.filename} (error: ${f.error}) ---`;
+              }
+            }
+          }
+        }
+
+        // Convert images to base64
+        for (const img of imgFiles) {
+          const buffer = await img.file.arrayBuffer();
+          const base64 = btoa(
+            new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
+          );
+          imageAttachments.push({
+            name: img.name,
+            base64,
+            mediaType: img.file.type,
+          });
+        }
+      }
+
+      // Build full message with file context
+      const fullMessage = fileContext
+        ? `${text}\n\n[Attached file contents:]${fileContext}`
+        : text;
+
       const res = await fetch("/api/ui-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: text,
+          message: fullMessage,
           context,
           customPageId: customPageId || undefined,
           threadId: threadId || undefined,
           pageSlug: pageSlug || undefined,
+          images: imageAttachments.length > 0 ? imageAttachments : undefined,
         }),
       });
 
@@ -137,7 +187,7 @@ export function AgentChat({
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           if (!line) continue;
@@ -225,16 +275,6 @@ export function AgentChat({
 
       onPageUpdated?.();
     } catch (err) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === `assistant-${Date.now()}`
-            ? {
-                ...m,
-                content: `Error: ${err instanceof Error ? err.message : "Unknown error"}`,
-              }
-            : m
-        )
-      );
       // Fallback: update last assistant message
       setMessages((prev) => {
         const updated = [...prev];
@@ -249,10 +289,8 @@ export function AgentChat({
       });
     } finally {
       setLoading(false);
-      inputRef.current?.focus();
     }
   }, [
-    input,
     loading,
     context,
     customPageId,
@@ -270,13 +308,6 @@ export function AgentChat({
       onInitialMessageSent?.();
     }
   }, [initialMessage, historyLoaded, loading, handleSend, onInitialMessageSent]);
-
-  function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }
 
   return (
     <div className={cn("flex flex-col", className)}>
@@ -346,28 +377,8 @@ export function AgentChat({
         </div>
       )}
 
-      {/* Input */}
-      <div className="border-t border-border px-4 py-3">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe what you want..."
-            disabled={loading}
-            className="flex-1 min-h-[40px] max-h-[120px] rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-            rows={1}
-          />
-          <Button
-            size="icon"
-            onClick={() => handleSend()}
-            disabled={loading || !input.trim()}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      {/* Input with file attachments */}
+      <ChatInput onSend={handleSend} disabled={loading} />
     </div>
   );
 }

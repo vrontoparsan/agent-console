@@ -19,17 +19,41 @@ export function CustomPageClient({
   title,
   config,
   code,
+  userRole,
 }: {
   slug: string;
   pageId: string;
   title: string;
   config: Record<string, unknown>;
   code?: string | null;
+  userRole?: string;
 }) {
   const router = useRouter();
   const [chatOpen, setChatOpen] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: string } | null>(null);
   const [errorToReport, setErrorToReport] = useState<string | null>(null);
+  const [canUseAgent, setCanUseAgent] = useState(userRole === "SUPERADMIN");
+
+  // Check if ADMIN has UI Agent access
+  useEffect(() => {
+    if (userRole === "SUPERADMIN") {
+      setCanUseAgent(true);
+      return;
+    }
+    if (userRole !== "ADMIN") {
+      setCanUseAgent(false);
+      return;
+    }
+    // ADMIN: check company setting
+    fetch("/api/settings/company")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.extra?.allowAdminUIAgent) {
+          setCanUseAgent(true);
+        }
+      })
+      .catch(() => {});
+  }, [userRole]);
 
   // Listen for instance SDK events
   useEffect(() => {
@@ -43,6 +67,7 @@ export function CustomPageClient({
       router.push(path);
     }
     function handleErrorReport(e: Event) {
+      if (!canUseAgent) return;
       const { error } = (e as CustomEvent).detail;
       setErrorToReport(error);
       setChatOpen(true);
@@ -55,25 +80,27 @@ export function CustomPageClient({
       window.removeEventListener("instance-navigate", handleNavigate);
       window.removeEventListener("instance-error-report", handleErrorReport);
     };
-  }, [router]);
+  }, [router, canUseAgent]);
 
   return (
     <div className="flex-1 flex flex-col">
       {/* Page header */}
       <div className="border-b border-border px-6 py-4 flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-        <button
-          onClick={() => setChatOpen(!chatOpen)}
-          className={cn(
-            "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
-            chatOpen
-              ? "bg-muted text-muted-foreground hover:bg-accent"
-              : "bg-primary/10 text-primary hover:bg-primary/20"
-          )}
-        >
-          {chatOpen ? <X className="h-4 w-4" /> : <Wand2 className="h-4 w-4" />}
-          <span className="hidden sm:inline">UI Agent</span>
-        </button>
+        {canUseAgent && (
+          <button
+            onClick={() => setChatOpen(!chatOpen)}
+            className={cn(
+              "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer",
+              chatOpen
+                ? "bg-muted text-muted-foreground hover:bg-accent"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            )}
+          >
+            {chatOpen ? <X className="h-4 w-4" /> : <Wand2 className="h-4 w-4" />}
+            <span className="hidden sm:inline">UI Agent</span>
+          </button>
+        )}
       </div>
 
       {/* Content + right panel */}
@@ -88,7 +115,7 @@ export function CustomPageClient({
         </div>
 
         {/* Desktop: Right panel */}
-        {chatOpen && (
+        {chatOpen && canUseAgent && (
           <div className="hidden md:flex w-[400px] border-l border-border flex-col shrink-0">
             <AgentChat
               context="page-editor"
@@ -104,7 +131,7 @@ export function CustomPageClient({
       </div>
 
       {/* Mobile: Full-screen overlay */}
-      {chatOpen && (
+      {chatOpen && canUseAgent && (
         <div className="md:hidden fixed inset-0 z-40 bg-background flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">

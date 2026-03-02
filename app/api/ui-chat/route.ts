@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
     customPageId: rawPageId,
     threadId,
     pageSlug,
+    images,
   } = await req.json();
 
   if (!message) {
@@ -134,6 +135,24 @@ export async function POST(req: NextRequest) {
     } else {
       // No thread — single message (backwards compatible)
       chatMessages = [{ role: "user", content: message }];
+    }
+
+    // Attach images to the last user message if present
+    if (images && images.length > 0 && chatMessages.length > 0) {
+      const lastMsg = chatMessages[chatMessages.length - 1];
+      if (lastMsg.role === "user") {
+        lastMsg.content = [
+          { type: "text" as const, text: lastMsg.content as string },
+          ...images.map((img: { base64: string; mediaType: string }) => ({
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: img.mediaType as "image/png" | "image/jpeg" | "image/gif" | "image/webp",
+              data: img.base64,
+            },
+          })),
+        ];
+      }
     }
 
     // Ensure messages start with user and end with user

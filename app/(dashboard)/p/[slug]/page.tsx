@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import { CustomPageClient } from "./client";
 
@@ -9,9 +10,10 @@ export default async function CustomPageRoute({
 }) {
   const { slug } = await params;
 
-  const page = await prisma.customPage.findUnique({
-    where: { slug },
-  });
+  const [page, session] = await Promise.all([
+    prisma.customPage.findUnique({ where: { slug } }),
+    auth(),
+  ]);
 
   if (!page) notFound();
 
@@ -22,6 +24,7 @@ export default async function CustomPageRoute({
       title={page.title}
       config={page.config as Record<string, unknown>}
       code={page.code}
+      userRole={session?.user?.role}
     />
   );
 }
