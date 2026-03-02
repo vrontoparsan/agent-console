@@ -83,7 +83,7 @@ export function CustomPageClient({
   }, [router, canUseAgent]);
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Page header */}
       <div className="border-b border-border px-6 py-4 flex items-center justify-between">
         <h1 className="text-lg font-semibold tracking-tight">{title}</h1>

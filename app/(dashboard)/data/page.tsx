@@ -83,7 +83,7 @@ export default function DataPage() {
 
   if (mode === "chat") {
     return (
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0">
         <div className="border-b border-border px-6 py-3 flex items-center gap-3">
           <h1 className="text-lg font-semibold tracking-tight">Data</h1>
           <div className="flex gap-1 ml-4">
@@ -175,7 +175,7 @@ export default function DataPage() {
       </div>
 
       {/* Main content - data table */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Search bar */}
         <div className="border-b border-border px-4 py-3 flex items-center gap-3">
           <h2 className="text-sm font-semibold flex items-center gap-2">

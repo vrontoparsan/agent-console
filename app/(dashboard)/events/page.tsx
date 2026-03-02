@@ -77,7 +77,7 @@ export default async function EventsPage({
   ]);
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col min-h-0">
       <EventList
         events={JSON.parse(JSON.stringify(events))}
         total={total}
