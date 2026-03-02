@@ -28,4 +28,4 @@ This is Agent Console — a Next.js 15 business management platform with AI-powe
 - Claude integration: `lib/claude.ts`
 - Instance SDK: `lib/instance/sdk.tsx`, `lib/instance/sdk-components.tsx`
 - JSX sandbox: `lib/instance/compile.ts`, `lib/instance/sandbox.tsx`
-- Configurator prompt: `lib/instance/configurator-prompt.ts`
+- UI Agent prompt: `lib/instance/configurator-prompt.ts`

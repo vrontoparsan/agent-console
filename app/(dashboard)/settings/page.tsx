@@ -56,9 +56,9 @@ const settingsItems = [
     roles: ["SUPERADMIN", "ADMIN"],
   },
   {
-    href: "/settings/ui-configurator",
-    label: "UI Configurator",
-    description: "Create custom UI pages with AI",
+    href: "/settings/sections",
+    label: "Spravovať Sekcie",
+    description: "Create, manage, and delete custom UI sections",
     icon: Wand2,
     roles: ["SUPERADMIN", "ADMIN"],
   },

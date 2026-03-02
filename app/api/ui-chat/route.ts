@@ -14,7 +14,7 @@ import {
   executeInstancePageTool,
   getSchemaContext,
 } from "@/lib/agent-tools/db-tools";
-import { CONFIGURATOR_SYSTEM_PROMPT, PAGE_EDITOR_CONTEXT } from "@/lib/instance/configurator-prompt";
+import { UI_AGENT_SYSTEM_PROMPT, PAGE_EDITOR_CONTEXT } from "@/lib/instance/configurator-prompt";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -73,11 +73,11 @@ export async function POST(req: NextRequest) {
   }
 
   const userRole = session.user.role;
-  const isConfigurator = context === "configurator";
+  const isUIAgent = context === "ui-agent";
   const isPageEditor = context === "page-editor";
-  const isUIMode = isConfigurator || isPageEditor;
+  const isUIMode = isUIAgent || isPageEditor;
 
-  if (isConfigurator && !["SUPERADMIN", "ADMIN"].includes(userRole)) {
+  if (isUIAgent && !["SUPERADMIN", "ADMIN"].includes(userRole)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -181,7 +181,7 @@ ${page.code ? `Current instance code:\n\`\`\`tsx\n${page.code}\n\`\`\`` : "No in
 
     let modePrompt: string;
     if (isUIMode) {
-      modePrompt = CONFIGURATOR_SYSTEM_PROMPT;
+      modePrompt = UI_AGENT_SYSTEM_PROMPT;
       if (isPageEditor) {
         modePrompt += "\n\n" + PAGE_EDITOR_CONTEXT;
       }

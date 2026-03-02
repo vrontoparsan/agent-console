@@ -2,7 +2,7 @@
 
 > **This document is for AI assistants, not humans.** It provides comprehensive context for any AI working on this codebase. **You MUST update this document when you make significant changes** (new features, schema changes, new API routes, architectural decisions).
 
-Last updated: 2026-03-02
+Last updated: 2026-03-03
 
 ---
 
@@ -50,10 +50,10 @@ app/
     files/parse/          # File parsing (PDF, DOCX, XLSX, images)
     instance/ai/          # Instance AI endpoint
     instance/email/       # Instance email sending
-    pages/route.ts        # Custom pages list
+    pages/route.ts        # Custom pages list + create + delete
     settings/             # All settings endpoints
-    ui-chat/route.ts      # Configurator/page-editor chat with threads
-    ui-chat/threads/      # Thread list for configurator
+    ui-chat/route.ts      # UI Agent/page-editor chat with threads
+    ui-chat/threads/      # Thread list for UI Agent
   (auth)/login/           # Login page
   (dashboard)/            # Protected routes
     events/               # Events dashboard
@@ -61,7 +61,7 @@ app/
     data/                 # Data browser
     p/[slug]/             # Dynamic custom pages
     settings/             # All settings pages
-      ui-configurator/    # Custom section builder
+      sections/           # Manage sections (create, delete, list)
 
 components/
   ui/                     # shadcn/ui primitives (Button, Input, Badge, Card, etc.)
@@ -69,7 +69,7 @@ components/
   events/                 # Event components
   chat/chat-panel.tsx     # Main chat panel (persistent, with history)
   custom-page/
-    agent-chat.tsx        # Configurator chat (threaded, persistent)
+    agent-chat.tsx        # UI Agent chat (threaded, persistent)
     page-renderer.tsx     # Legacy JSON config renderer
     components/           # data-table, form, stats, text components
 
@@ -85,7 +85,7 @@ lib/
     sandbox.tsx           # Function constructor sandbox + ErrorBoundary
     sdk.tsx               # SDK hooks: useCstmQuery, useCstmMutation, useAI, sdk.*
     sdk-components.tsx    # SDK UI components for Instance pages
-    configurator-prompt.ts # Expert system prompt for configurator agent
+    configurator-prompt.ts # Expert system prompt for UI Agent
 
 prisma/schema.prisma      # All database models
 scripts/                  # Migration scripts
@@ -110,7 +110,7 @@ Dockerfile                # Multi-stage Docker build
 
 **Event** — title, summary, rawContent, source, type (PLUS/MINUS), status (NEW/IN_PROGRESS/RESOLVED/ARCHIVED), priority, categoryId, assignedTo, emailAccountId, senderEmail, metadata
 
-**Message** — content, role (user/assistant), eventId? (event chat), customPageId? (configurator thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for configurator)
+**Message** — content, role (user/assistant), eventId? (event chat), customPageId? (UI Agent thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for UI Agent)
 
 **CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published, order
 
@@ -184,7 +184,7 @@ Dockerfile                # Multi-stage Docker build
 ### Two Chat Contexts
 
 1. **Main Chat** (`/api/chat`) — general business chat, event-specific conversations, persistent via Message model with eventId
-2. **UI Chat** (`/api/ui-chat`) — configurator and page-editor, persistent via Message model with customPageId, threaded per section
+2. **UI Chat** (`/api/ui-chat`) — UI Agent and page-editor, persistent via Message model with customPageId, threaded per section
 
 ---
 
@@ -194,7 +194,7 @@ This is the most complex subsystem. Companies get custom UI sections without mod
 
 ### Architecture
 ```
-User describes UI → Configurator agent writes JSX → Stored in CustomPage.code →
+User describes UI → UI Agent writes JSX → Stored in CustomPage.code →
 User opens page → Sucrase compiles JSX → Function constructor sandbox →
 React component renders with SDK hooks and components
 ```
@@ -216,11 +216,11 @@ React component renders with SDK hooks and components
 - Live in `instance` PostgreSQL schema (isolated from Core)
 - CRUD via `/api/cstm` endpoint
 
-### Configurator Threading
+### UI Agent Threading
 - Each CustomPage has its own conversation thread (Message.customPageId)
 - New sections use temporary threadId until page is created
 - When agent creates page, orphan messages auto-link to new page
-- Page editor (wand button on pages) shares the same thread
+- Page editor (wand button on pages, right-side panel) shares the same thread
 - History loaded on mount, full context sent to agent (80 messages)
 - System prompt includes current page code inline
 
@@ -256,7 +256,7 @@ result:Your orders page has been created! It's now visible in the sidebar.
 
 - `text:` — real-time text delta (JSON-encoded string), streamed word-by-word
 - `event:` — tool execution notification (shown as pill badges in UI)
-- `pageCreated:` — signals new page creation (configurator switches thread)
+- `pageCreated:` — signals new page creation (UI Agent switches thread)
 - `result:` — final assistant text response (used for DB persistence)
 - `error:` — error message
 
@@ -299,7 +299,7 @@ ADMIN_PASSWORD            # Initial admin password
 ## Chat UI Features
 
 - **Markdown rendering** — Assistant messages are rendered with `react-markdown` via `components/chat/markdown.tsx`. Supports headings, lists, code blocks, tables, links, blockquotes. User messages stay plain text.
-- **Real-time text streaming** — Agent responses stream word-by-word via `text:` events in the streaming protocol. Both configurator and general chat.
+- **Real-time text streaming** — Agent responses stream word-by-word via `text:` events in the streaming protocol. Both UI Agent and general chat.
 - **Persistent loading indicator** — "Agent pracuje..." status bar visible during entire agent processing (tool calls, code generation, verification).
 - **Tool event badges** — Tool executions shown as inline pills on assistant messages (Wrench icon + tool name + truncated input).
 - **Runtime error reporting** — ErrorBoundary in sandbox.tsx has "Oprav chybu" button that auto-opens page editor chat with error message → agent auto-diagnoses and fixes.
@@ -329,9 +329,9 @@ ADMIN_PASSWORD            # Initial admin password
 | Instance UI components | `lib/instance/sdk-components.tsx` |
 | JSX compiler | `lib/instance/compile.ts` |
 | JSX sandbox | `lib/instance/sandbox.tsx` |
-| Configurator prompt | `lib/instance/configurator-prompt.ts` |
+| UI Agent prompt | `lib/instance/configurator-prompt.ts` |
 | Main chat API | `app/api/chat/route.ts` |
-| Configurator chat API | `app/api/ui-chat/route.ts` |
+| UI Agent chat API | `app/api/ui-chat/route.ts` |
 | Custom table CRUD API | `app/api/cstm/route.ts` |
 | Sidebar navigation | `components/layout/nav.tsx` |
 | AgentChat component | `components/custom-page/agent-chat.tsx` |

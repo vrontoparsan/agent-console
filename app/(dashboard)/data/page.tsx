@@ -92,7 +92,7 @@ export default function DataPage() {
             </button>
           </div>
         </div>
-        <AgentChat context="configurator" className="flex-1" />
+        <AgentChat context="data" className="flex-1" />
       </div>
     );
   }

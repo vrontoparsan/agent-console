@@ -136,7 +136,7 @@ export default function UsersPage() {
                 <li>Can execute raw SQL on custom tables</li>
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
-                <li>Can configure UI pages via UI Configurator</li>
+                <li>Can configure UI pages via UI Agent</li>
                 <li>Sees all custom pages</li>
                 <li>Access to database Backup settings</li>
               </ul>
@@ -147,7 +147,7 @@ export default function UsersPage() {
                 <li>Can upload files in Chat and import data into database</li>
                 <li>Can delete database records via chat</li>
                 <li>Can bulk-edit unlimited records via chat</li>
-                <li>Can configure UI pages via UI Configurator</li>
+                <li>Can configure UI pages via UI Agent</li>
                 <li>Sees all custom pages</li>
               </ul>
             )}

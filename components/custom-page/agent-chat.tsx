@@ -24,7 +24,7 @@ export function AgentChat({
   onInitialMessageSent,
   className,
 }: {
-  context: "configurator" | "page-editor";
+  context: "ui-agent" | "page-editor" | "data";
   pageSlug?: string;
   customPageId?: string;
   threadId?: string;
@@ -284,9 +284,11 @@ export function AgentChat({
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3 space-y-3">
         {historyLoaded && messages.length === 0 && (
           <div className="text-center text-sm text-muted-foreground py-8">
-            {context === "configurator"
+            {context === "ui-agent"
               ? "Describe the UI page you want to create. E.g.: 'Create a Warehouse page with a table of products.'"
-              : "Describe changes to this page. E.g.: 'Add a search filter for product name.'"}
+              : context === "data"
+                ? "Ask about your data. E.g.: 'Show me all events from last month.'"
+                : "Describe changes to this page. E.g.: 'Add a search filter for product name.'"}
           </div>
         )}
         {messages.map((msg) => (

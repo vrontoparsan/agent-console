@@ -59,7 +59,7 @@ export function FormComponent({ config }: { config: ComponentConfig }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: `Create a new record in ${table} with this data: ${JSON.stringify(values)}`,
-            context: "configurator",
+            context: "ui-agent",
           }),
         });
 
