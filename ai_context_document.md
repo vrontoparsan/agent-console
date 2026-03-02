@@ -208,7 +208,7 @@ React component renders with SDK hooks and components
 - **ErrorBoundary**: Runtime errors don't crash the Core app
 
 ### SDK (available in Instance code scope)
-- **Hooks**: useCstmQuery(table, options), useCstmMutation(table), useAI()
+- **Hooks**: useCstmQuery(table, options), useCstmMutation(table), useAI(), useVoice(options?)
 - **Components**: Button, Input, Badge, Card/CardHeader/CardTitle/CardDescription/CardContent, DataTable, StatCard, Select, Tabs, LoadingSpinner, EmptyState
 - **Utilities**: sdk.notify(), sdk.navigate(), sdk.formatDate(), sdk.formatDateTime(), sdk.formatCurrency(), sdk.formatNumber(), sdk.download(), sdk.sendEmail()
 - **Convention**: Code must end with `var __default__ = ComponentName;`

@@ -16,7 +16,7 @@ Instance Pages are React components stored as JSX source code in the database. T
 2. Compiled code runs in a Function constructor sandbox with a controlled scope
 3. The component renders within the main app layout (sidebar + content area)
 
-**Available in scope:** React, useState, useEffect, useCallback, useMemo, SDK data hooks, SDK UI components, sdk.* utilities.
+**Available in scope:** React, useState, useEffect, useCallback, useMemo, SDK data hooks (useCstmQuery, useCstmMutation, useAI, useVoice), SDK UI components, sdk.* utilities.
 
 **NOT available (blocked for security):** window, document, fetch, import(), require(), eval(), new Function(), globalThis, localStorage, sessionStorage, XMLHttpRequest.
 
@@ -109,6 +109,19 @@ text-sm md:text-base    (body)
 - \`ask(prompt, {context?})\` — send question with optional data context, returns string
 - Returns: \`{ ask, loading, lastResponse, error }\`
 - Use for: data analysis, summaries, recommendations, natural language queries.
+
+**\`useVoice(options?)\`** — Record voice from microphone and transcribe via Claude.
+- \`options.maxDuration\`: number — max recording time in seconds (default 30)
+- \`options.prompt\`: string — optional instruction for transcription (e.g. "Extract names, date and time from this recording as JSON")
+- Returns: \`{ start, stop, recording, transcribing, text, error }\`
+- \`start()\` — request mic permission and begin recording
+- \`stop()\` — stop recording, auto-sends to Claude for transcription
+- \`recording\` — boolean, true while recording
+- \`transcribing\` — boolean, true while Claude is processing audio
+- \`text\` — transcribed text (null before first use)
+- \`error\` — error message if any
+- Uses MediaRecorder API + server-side Claude transcription. Works on HTTPS.
+- ALWAYS use this instead of Web Speech API (SpeechRecognition) which is unreliable.
 
 ### SDK Utilities (sdk.*)
 
@@ -476,7 +489,8 @@ var __default__ = OrderAnalytics;
 - PREFER Instance pages over legacy JSON config pages for any non-trivial UI.
 - Use clean, readable code structure. Group related state at the top, helper functions in the middle, JSX return at the bottom.
 - If verification fails, FIX and re-verify. Do not give up. Do not tell the user it's done until verified.
-- **NEVER hardcode data** in Instance page code. ALL business data MUST be stored in cstm_ database tables and loaded via \`useCstmQuery\`. Hardcoded sample/demo data is strictly forbidden. If the user needs data displayed, CREATE a cstm_ table first, then build the UI to query it.`;
+- **NEVER hardcode data** in Instance page code. ALL business data MUST be stored in cstm_ database tables and loaded via \`useCstmQuery\`. Hardcoded sample/demo data is strictly forbidden. If the user needs data displayed, CREATE a cstm_ table first, then build the UI to query it.
+- **NEVER use Web Speech API** (SpeechRecognition, webkitSpeechRecognition). It is unreliable and often fails with network errors. ALWAYS use the \`useVoice()\` hook instead — it records via MediaRecorder and transcribes via Claude on the server.`;
 
 export const PAGE_EDITOR_CONTEXT = `
 You are currently in the **page editor** for a specific Instance page. The user is looking at this page right now and wants to modify it. When updating, use \`update_instance_page_code\` with the page slug.

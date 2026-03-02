@@ -237,6 +237,128 @@ export function useAI(): AIResult {
   return { ask, loading, error, lastResponse };
 }
 
+// ─── useVoice ───────────────────────────────────────────────
+
+type VoiceResult = {
+  /** Start recording from microphone */
+  start: () => void;
+  /** Stop recording and begin transcription */
+  stop: () => void;
+  /** Whether currently recording */
+  recording: boolean;
+  /** Whether transcription is in progress */
+  transcribing: boolean;
+  /** Last transcribed text */
+  text: string | null;
+  /** Error message */
+  error: string | null;
+};
+
+export function useVoice(options?: { maxDuration?: number; prompt?: string }): VoiceResult {
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const maxDur = ((options?.maxDuration || 30) * 1000);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const transcribe = useCallback(async (blob: Blob) => {
+    setTranscribing(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob, "voice.webm");
+      if (options?.prompt) formData.append("prompt", options.prompt);
+
+      const res = await globalThis.fetch("/api/instance/voice", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      setText(json.text || "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transcription failed");
+    } finally {
+      setTranscribing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options?.prompt]);
+
+  const start = useCallback(() => {
+    if (recording) return;
+    setError(null);
+    setText(null);
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setError("Mikrofón nie je dostupný");
+      return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm",
+      });
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        setRecording(false);
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType });
+        if (blob.size > 0) {
+          transcribe(blob);
+        }
+      };
+
+      recorder.onerror = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+        setRecording(false);
+        setError("Chyba pri nahrávaní");
+      };
+
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+
+      timerRef.current = setTimeout(() => {
+        if (recorder.state === "recording") recorder.stop();
+      }, maxDur);
+    }).catch((err) => {
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        setError("Mikrofón zamietnutý. Povoľte v prehliadači.");
+      } else {
+        setError("Nepodarilo sa získať mikrofón");
+      }
+    });
+  }, [recording, maxDur, transcribe]);
+
+  const stop = useCallback(() => {
+    if (recorderRef.current && recorderRef.current.state === "recording") {
+      recorderRef.current.stop();
+    }
+  }, []);
+
+  return { start, stop, recording, transcribing, text, error };
+}
+
 // ─── SDK Utilities ───────────────────────────────────────────
 
 export const sdk = {
@@ -304,4 +426,5 @@ export const sdk = {
     if (!res.ok) throw new Error("Email send failed");
     return res.json();
   },
+
 };
