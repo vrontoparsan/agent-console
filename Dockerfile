@@ -32,6 +32,7 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY seed.js ./seed.js
+COPY --from=builder /app/scripts ./scripts
 COPY start.sh ./start.sh
 RUN chmod +x start.sh
 
