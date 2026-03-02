@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import * as fs from "fs";
 import * as path from "path";
+import { compileJSX } from "@/lib/instance/compile";
 
 // All models accessible through the agent
 const ALLOWED_MODELS: Record<string, string> = {
@@ -511,13 +512,37 @@ ${SDK_REFERENCE}`,
     },
     {
       name: "get_instance_page",
-      description: "Get the current JSX code of an Instance page by slug.",
+      description: "Get the current JSX code of an Instance page by slug. ALWAYS use this before modifying an existing page.",
       input_schema: {
         type: "object" as const,
         properties: {
           slug: { type: "string" },
         },
         required: ["slug"],
+      },
+    },
+    {
+      name: "verify_instance_code",
+      description: `Verify that Instance page JSX code compiles successfully. Runs Sucrase compilation + security checks.
+MANDATORY: Call this AFTER every create_instance_page or update_instance_page_code. If it returns errors, fix the code and update again, then verify again.
+Returns { ok: true } on success, or { ok: false, error: "..." } with the compilation error message.`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          code: { type: "string", description: "The JSX code to verify" },
+        },
+        required: ["code"],
+      },
+    },
+    {
+      name: "introspect_table",
+      description: `Get the column schema of a custom table. Returns column names, data types, and defaults. Use this before writing code that references a custom table to ensure you use correct column names and types.`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          table: { type: "string", description: "Table name (e.g. cstm_orders). Must start with cstm_" },
+        },
+        required: ["table"],
       },
     },
   ];
@@ -584,6 +609,49 @@ export async function executeInstancePageTool(
         );
       } catch (err) {
         return `Error: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+
+    case "verify_instance_code": {
+      const code = input.code as string;
+      if (!code || code.trim().length === 0) {
+        return JSON.stringify({ ok: false, error: "Empty code provided" });
+      }
+      const result = compileJSX(code);
+      if (result.ok) {
+        // Also check for __default__ export
+        if (!code.includes("__default__")) {
+          return JSON.stringify({
+            ok: false,
+            error: 'Code compiles but is missing the required export. Add: var __default__ = ComponentName;',
+          });
+        }
+        return JSON.stringify({ ok: true });
+      }
+      return JSON.stringify({ ok: false, error: result.error });
+    }
+
+    case "introspect_table": {
+      const table = input.table as string;
+      if (!table.startsWith("cstm_")) {
+        return `Error: Only custom tables (cstm_ prefix) can be introspected.`;
+      }
+      try {
+        const columns = await prisma.$queryRawUnsafe<
+          { column_name: string; data_type: string; column_default: string | null; is_nullable: string }[]
+        >(
+          `SELECT column_name, data_type, column_default, is_nullable
+           FROM information_schema.columns
+           WHERE table_schema = 'instance' AND table_name = $1
+           ORDER BY ordinal_position`,
+          table
+        );
+        if (columns.length === 0) {
+          return `Error: Table "${table}" not found in instance schema.`;
+        }
+        return JSON.stringify({ table, columns }, null, 2);
+      } catch (err) {
+        return `Error introspecting table: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
 

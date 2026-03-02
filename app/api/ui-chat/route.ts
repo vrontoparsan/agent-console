@@ -229,7 +229,7 @@ Important:
                 toolResult = await executeDbTool(name, input, userRole);
               } else if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
                 toolResult = await executePageTool(name, input);
-              } else if (["create_instance_page", "update_instance_page_code", "get_instance_page"].includes(name)) {
+              } else if (["create_instance_page", "update_instance_page_code", "get_instance_page", "verify_instance_code", "introspect_table"].includes(name)) {
                 toolResult = await executeInstancePageTool(name, input);
               } else if (name === "execute_sql") {
                 toolResult = await executeSqlTool(input, userRole);

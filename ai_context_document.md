@@ -164,8 +164,12 @@ Dockerfile                # Multi-stage Docker build
 
 **DB Tools** — query_data, count_records, create_record, update_records, delete_records
 **Page Tools** — create_page, update_page, get_page, list_pages, delete_page
-**Instance Page Tools** — create_instance_page, update_instance_page_code, get_instance_page
+**Instance Page Tools** — create_instance_page, update_instance_page_code, get_instance_page, verify_instance_code, introspect_table
 **SQL Tools** — execute_sql (SUPERADMIN only)
+
+**verify_instance_code** — Runs Sucrase compilation + security checks on JSX code. Agent MUST call this after every code write/update. Returns `{ok: true}` or `{ok: false, error: "..."}`. If error, agent fixes and re-verifies.
+
+**introspect_table** — Returns column schema (name, type, default, nullable) for a custom table. Agent uses this before writing code that references custom tables.
 
 ### Two Chat Contexts
 
