@@ -77,12 +77,23 @@ export function AgentChat({
       .finally(() => setHistoryLoaded(true));
   }, [customPageId, threadId]);
 
-  // Auto-scroll on new messages
-  useEffect(() => {
+  // Auto-scroll to bottom on new messages and after history loads
+  const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (historyLoaded) {
+      // Small delay to ensure DOM has rendered messages
+      requestAnimationFrame(scrollToBottom);
+    }
+  }, [historyLoaded, scrollToBottom]);
 
   const initialMessageSentRef = useRef(false);
 
@@ -313,9 +324,9 @@ export function AgentChat({
   }, [initialMessage, historyLoaded, loading, handleSend, onInitialMessageSent]);
 
   return (
-    <div className={cn("flex flex-col", className)}>
+    <div className={cn("flex flex-col overflow-hidden", className)}>
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-3 space-y-3">
         {historyLoaded && messages.length === 0 && (
           <div className="text-center text-sm text-muted-foreground py-8">
             {context === "ui-agent"

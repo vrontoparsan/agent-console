@@ -116,7 +116,7 @@ export function CustomPageClient({
 
         {/* Desktop: Right panel */}
         {chatOpen && canUseAgent && (
-          <div className="hidden md:flex w-[400px] border-l border-border flex-col shrink-0">
+          <div className="hidden md:flex w-[400px] border-l border-border flex-col shrink-0 overflow-hidden">
             <AgentChat
               context="page-editor"
               pageSlug={slug}
