@@ -15,11 +15,13 @@ import { cn } from "@/lib/utils";
 
 export function CustomPageClient({
   slug,
+  pageId,
   title,
   config,
   code,
 }: {
   slug: string;
+  pageId: string;
   title: string;
   config: Record<string, unknown>;
   code?: string | null;
@@ -96,6 +98,7 @@ export function CustomPageClient({
           <AgentChat
             context="page-editor"
             pageSlug={slug}
+            customPageId={pageId}
             onPageUpdated={() => router.refresh()}
             className="h-full"
           />

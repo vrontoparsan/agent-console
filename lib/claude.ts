@@ -173,7 +173,7 @@ export async function agenticChat({
   tools,
   executeTool,
   onEvent,
-  maxLoops = 15,
+  maxLoops = 25,
 }: {
   messages: MessageParam[];
   systemPrompt: string;
@@ -188,7 +188,7 @@ export async function agenticChat({
   for (let i = 0; i < maxLoops; i++) {
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 16384,
+      max_tokens: 32768,
       system: systemPrompt,
       messages: history,
       tools,

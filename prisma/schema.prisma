@@ -163,18 +163,23 @@ model EventAction {
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  content   String   @db.Text
-  role      String
-  eventId   String?
-  userId    String?
-  metadata  Json?
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  content      String   @db.Text
+  role         String
+  eventId      String?
+  customPageId String?
+  threadId     String?
+  userId       String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
 
-  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user  User?  @relation(fields: [userId], references: [id])
+  event      Event?      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  customPage CustomPage? @relation(fields: [customPageId], references: [id], onDelete: Cascade)
+  user       User?       @relation(fields: [userId], references: [id])
 
   @@index([eventId])
+  @@index([customPageId])
+  @@index([threadId])
   @@index([createdAt(sort: Desc)])
 }
 
@@ -215,6 +220,7 @@ model CustomPage {
   updatedAt DateTime @updatedAt
 
   userAccess UserPageAccess[]
+  messages   Message[]
 }
 
 model UserPageAccess {

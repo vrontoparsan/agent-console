@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Send, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,27 +14,79 @@ type Message = {
 export function AgentChat({
   context,
   pageSlug,
+  customPageId,
+  threadId,
   onPageUpdated,
+  onPageCreated,
   className,
 }: {
   context: "configurator" | "page-editor";
   pageSlug?: string;
+  customPageId?: string;
+  threadId?: string;
   onPageUpdated?: () => void;
+  onPageCreated?: (page: { id: string; slug: string; title: string }) => void;
   className?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Load thread history on mount / thread change
+  useEffect(() => {
+    setMessages([]);
+    setHistoryLoaded(false);
+
+    if (!customPageId && !threadId) {
+      setHistoryLoaded(true);
+      return;
+    }
+
+    const params = customPageId
+      ? `customPageId=${customPageId}`
+      : `threadId=${threadId}`;
+
+    fetch(`/api/ui-chat?${params}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (!data.messages) return;
+        const displayMsgs: Message[] = [];
+        for (const m of data.messages) {
+          // Expand tool events from metadata
+          if (m.role === "assistant" && m.metadata?.toolEvents) {
+            for (const evt of m.metadata.toolEvents as string[]) {
+              displayMsgs.push({
+                id: `tool-${m.id}-${displayMsgs.length}`,
+                role: "tool",
+                content: evt,
+              });
+            }
+          }
+          if (m.role === "user" || m.role === "assistant") {
+            displayMsgs.push({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+            });
+          }
+        }
+        setMessages(displayMsgs);
+      })
+      .catch(() => {})
+      .finally(() => setHistoryLoaded(true));
+  }, [customPageId, threadId]);
+
+  // Auto-scroll on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
-  async function handleSend() {
+  const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || loading) return;
 
@@ -42,22 +94,23 @@ export function AgentChat({
     setLoading(true);
 
     const userMsg: Message = {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}`,
       role: "user",
       content: text,
     };
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      // If editing a specific page, prepend context
-      const message = pageSlug
-        ? `[Editing page: ${pageSlug}] ${text}`
-        : text;
-
       const res = await fetch("/api/ui-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, context }),
+        body: JSON.stringify({
+          message: text,
+          context,
+          customPageId: customPageId || undefined,
+          threadId: threadId || undefined,
+          pageSlug: pageSlug || undefined,
+        }),
       });
 
       if (!res.ok) throw new Error("Chat failed");
@@ -77,20 +130,26 @@ export function AgentChat({
 
         for (const line of lines) {
           if (line.startsWith("event:")) {
-            const event = JSON.parse(line.slice(6));
-            // Show tool execution as a tool message
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `tool-${Date.now()}`,
-                role: "tool",
-                content: event.data,
-              },
-            ]);
+            try {
+              const event = JSON.parse(line.slice(6));
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `tool-${Date.now()}-${Math.random()}`,
+                  role: "tool",
+                  content: event.data,
+                },
+              ]);
+            } catch { /* skip malformed events */ }
           } else if (line.startsWith("result:")) {
             assistantText = line.slice(7);
           } else if (line.startsWith("error:")) {
             assistantText = `Error: ${line.slice(6)}`;
+          } else if (line.startsWith("pageCreated:")) {
+            try {
+              const pageInfo = JSON.parse(line.slice(12));
+              onPageCreated?.(pageInfo);
+            } catch { /* skip */ }
           }
         }
       }
@@ -106,7 +165,6 @@ export function AgentChat({
         ]);
       }
 
-      // If a page was created/updated, notify parent
       onPageUpdated?.();
     } catch (err) {
       setMessages((prev) => [
@@ -121,7 +179,7 @@ export function AgentChat({
       setLoading(false);
       inputRef.current?.focus();
     }
-  }
+  }, [input, loading, context, customPageId, threadId, pageSlug, onPageUpdated, onPageCreated]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -134,7 +192,7 @@ export function AgentChat({
     <div className={cn("flex flex-col", className)}>
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-auto px-4 py-3 space-y-3">
-        {messages.length === 0 && (
+        {historyLoaded && messages.length === 0 && (
           <div className="text-center text-sm text-muted-foreground py-8">
             {context === "configurator"
               ? "Describe the UI page you want to create. E.g.: 'Create a Warehouse page with a table of products.'"

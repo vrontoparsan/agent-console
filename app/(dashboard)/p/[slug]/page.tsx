@@ -18,6 +18,7 @@ export default async function CustomPageRoute({
   return (
     <CustomPageClient
       slug={page.slug}
+      pageId={page.id}
       title={page.title}
       config={page.config as Record<string, unknown>}
       code={page.code}
