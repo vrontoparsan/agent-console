@@ -470,51 +470,9 @@ export async function executeSqlTool(
 
 // ─── Instance Page Tools ─────────────────────────────────────
 
-const SDK_REFERENCE = `Available in SDK scope:
-- React hooks: useState, useEffect, useCallback, useMemo
-- Data: useCstmQuery(table, {page, pageSize, sort, dir, search, filters}) → {data, columns, total, loading, error, refetch}
-- Mutations: useCstmMutation(table) → {create(data), update(id, data), remove(id), loading, error}
-- AI: useAI() → {ask(prompt, {context}), loading, lastResponse, error}
-- Utilities: sdk.notify(msg, type?), sdk.navigate("/p/slug"), sdk.formatDate(date, locale?), sdk.formatDateTime(date, locale?), sdk.formatCurrency(amount, currency?), sdk.formatNumber(n), sdk.download(url, filename), sdk.sendEmail(to, subject, body)
-- UI: Button, Input, Badge, Card, CardHeader, CardTitle, CardDescription, CardContent, DataTable, StatCard, Select, Tabs, LoadingSpinner, EmptyState
-
-DataTable props: data, columns ({key, label, render?}), loading?, onRowClick?, className?
-StatCard props: label, value, description?, trend? ("up"|"down"|"neutral"), className?
-Select props: options ({value, label}[]), value, onChange, placeholder?, className?
-Tabs props: items ({label, content}[]), defaultIndex?, className?
-
-Code MUST end with: var __default__ = ComponentName;
-
-Example:
-function Dashboard() {
-  const { data, loading, total } = useCstmQuery("cstm_orders", { pageSize: 20, sort: "created_at", dir: "desc" });
-  const mutation = useCstmMutation("cstm_orders");
-  const ai = useAI();
-  const [analysis, setAnalysis] = React.useState(null);
-
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Total Orders" value={total} />
-      </div>
-      <Card>
-        <CardHeader><CardTitle>Orders</CardTitle></CardHeader>
-        <CardContent>
-          <DataTable data={data} loading={loading} columns={[
-            {key: "product", label: "Product"},
-            {key: "qty", label: "Qty"},
-            {key: "status", label: "Status", render: (v) => <Badge>{v}</Badge>}
-          ]} />
-        </CardContent>
-      </Card>
-      <Button onClick={async () => { const r = await ai.ask("Analyze orders", {context: data}); setAnalysis(r); }}>
-        AI Analysis
-      </Button>
-      {analysis && <Card><CardContent><p className="text-sm whitespace-pre-wrap">{analysis}</p></CardContent></Card>}
-    </div>
-  );
-}
-var __default__ = Dashboard;`;
+const SDK_REFERENCE = `SDK scope: React (useState, useEffect, useCallback, useMemo), useCstmQuery, useCstmMutation, useAI, sdk.*, Button, Input, Badge, Card/CardHeader/CardTitle/CardDescription/CardContent, DataTable, StatCard, Select, Tabs, LoadingSpinner, EmptyState.
+Code MUST be responsive (mobile + desktop) and end with: var __default__ = ComponentName;
+Full SDK reference is in the system prompt.`;
 
 export function getInstancePageTools(): Tool[] {
   return [

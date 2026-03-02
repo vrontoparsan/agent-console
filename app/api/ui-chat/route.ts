@@ -13,6 +13,7 @@ import {
   executeInstancePageTool,
   getSchemaContext,
 } from "@/lib/agent-tools/db-tools";
+import { CONFIGURATOR_SYSTEM_PROMPT, PAGE_EDITOR_CONTEXT } from "@/lib/instance/configurator-prompt";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -63,42 +64,33 @@ export async function POST(req: NextRequest) {
       ? "\n\n## Agent Contexts\n" + permanentContexts.map((c) => `### ${c.name}\n${c.content}`).join("\n\n")
       : "";
 
-    const systemPrompt = `You are a database agent for Agent Console, a business management platform. You work agentically with the database — you can read, create, update, and delete records.
+    const isPageEditor = context === "page-editor";
+    const isUIMode = isConfigurator || isPageEditor;
+
+    let modePrompt: string;
+    if (isUIMode) {
+      modePrompt = CONFIGURATOR_SYSTEM_PROMPT;
+      if (isPageEditor) {
+        modePrompt += "\n\n" + PAGE_EDITOR_CONTEXT;
+      }
+    } else {
+      modePrompt = `## Data Chat Mode
+You are helping the user explore and manage their database. Always:
+1. Start by understanding what the user needs
+2. Use query_data with appropriate filters and limits (never dump entire tables)
+3. Format results clearly for the user
+4. Confirm before making changes (create/update/delete)
+5. For large tables, use count_records first, then paginated queries`;
+    }
+
+    const systemPrompt = `You are an agent for Agent Console, a business management platform.
 
 ${permissionInfo}
 
 ${schemaContext}
 ${contextBlock}
 
-${isConfigurator ? `## UI Configurator Mode
-You are helping the user create and configure custom UI pages.
-
-### Instance Pages (PREFERRED)
-Use create_instance_page to create rich, interactive pages with custom React JSX code.
-Instance pages use the SDK — they have access to data hooks, AI, and UI components.
-ALWAYS prefer Instance pages over JSON config pages for any non-trivial UI.
-
-When the user describes a UI they want:
-1. Create the database table with execute_sql if needed (prefix with "cstm_", include id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())
-2. Create an Instance page with create_instance_page — write JSX code using SDK hooks and components
-3. Publish the page so it appears in the sidebar
-4. Explain what you created
-
-### Legacy JSON Config Pages
-For very simple pages (just a data table or form), you can still use create_page with JSON config:
-- "data-table": Sortable, filterable, paginated table
-- "form": Input form for creating/editing records
-- "stats": KPI metric cards with counts/sums
-- "text": Static markdown content block
-
-When creating pages, use clear slugs, descriptive titles, and appropriate Lucide icon names.
-After creating or updating a page, inform the user it will appear in the left sidebar menu.` : `## Data Chat Mode
-You are helping the user explore and manage their database. Always:
-1. Start by understanding what the user needs
-2. Use query_data with appropriate filters and limits (never dump entire tables)
-3. Format results clearly for the user
-4. Confirm before making changes (create/update/delete)
-5. For large tables, use count_records first, then paginated queries`}
+${modePrompt}
 
 Important:
 - Always use pagination (limit 20 by default) for queries

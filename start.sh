@@ -13,6 +13,10 @@ npx prisma db push --skip-generate 2>&1 || echo "DB push failed (may already be 
 echo "Running seed..."
 node seed.js 2>&1 || echo "Seed skipped or failed"
 
+# Run instance schema migration (idempotent - creates instance schema, moves cstm_ tables)
+echo "Running instance schema migration..."
+npx tsx scripts/migrate-instance-schema.ts 2>&1 || echo "Instance schema migration failed"
+
 # Start Next.js
 echo "Starting Next.js server..."
 exec node server.js
