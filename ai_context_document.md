@@ -254,9 +254,10 @@ pageCreated:{"id":"clxx...","slug":"orders","title":"Orders"}
 result:Your orders page has been created! It's now visible in the sidebar.
 ```
 
+- `text:` — real-time text delta (JSON-encoded string), streamed word-by-word
 - `event:` — tool execution notification (shown as pill badges in UI)
 - `pageCreated:` — signals new page creation (configurator switches thread)
-- `result:` — final assistant text response
+- `result:` — final assistant text response (used for DB persistence)
 - `error:` — error message
 
 ---
@@ -295,6 +296,16 @@ ADMIN_PASSWORD            # Initial admin password
 
 ---
 
+## Chat UI Features
+
+- **Markdown rendering** — Assistant messages are rendered with `react-markdown` via `components/chat/markdown.tsx`. Supports headings, lists, code blocks, tables, links, blockquotes. User messages stay plain text.
+- **Real-time text streaming** — Agent responses stream word-by-word via `text:` events in the streaming protocol. Both configurator and general chat.
+- **Persistent loading indicator** — "Agent pracuje..." status bar visible during entire agent processing (tool calls, code generation, verification).
+- **Tool event badges** — Tool executions shown as inline pills on assistant messages (Wrench icon + tool name + truncated input).
+- **Runtime error reporting** — ErrorBoundary in sandbox.tsx has "Oprav chybu" button that auto-opens page editor chat with error message → agent auto-diagnoses and fixes.
+
+---
+
 ## Things to Watch Out For
 
 - **JSDoc comments with `*/`**: If you write `cstm_*/custom_*` inside a `/** */` comment, the `*/` will close the comment prematurely. Use `//` line comments instead.
@@ -325,5 +336,6 @@ ADMIN_PASSWORD            # Initial admin password
 | Sidebar navigation | `components/layout/nav.tsx` |
 | AgentChat component | `components/custom-page/agent-chat.tsx` |
 | Main chat panel | `components/chat/chat-panel.tsx` |
+| Markdown renderer | `components/chat/markdown.tsx` |
 | Dockerfile | `Dockerfile` |
 | Startup script | `start.sh` |
