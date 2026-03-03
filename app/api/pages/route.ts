@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       title: title.trim(),
       slug,
       config: {},
-      published: false,
+      published: true,
       order: (maxOrder._max.order || 0) + 1,
       categoryId: categoryId || null,
     },

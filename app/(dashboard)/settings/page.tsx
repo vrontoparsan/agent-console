@@ -58,7 +58,7 @@ const settingsItems = [
   },
   {
     href: "/settings/sections",
-    label: "Spravovať Sekcie",
+    label: "Manage Sections",
     description: "Create, manage, and delete custom UI sections",
     icon: Wand2,
     roles: ["SUPERADMIN", "ADMIN"],
@@ -66,7 +66,7 @@ const settingsItems = [
   {
     href: "/settings/ai-apis",
     label: "AI APIs",
-    description: "API kľúče a tokeny s automatickým failoverom",
+    description: "API keys and tokens with automatic failover",
     icon: Key,
     roles: ["SUPERADMIN"],
   },

@@ -152,7 +152,7 @@ function SortableSectionRow({
           <Link href={`/p/${section.slug}`}>
             <Button variant="ghost" size="sm" className="gap-1 text-xs h-7">
               <ExternalLink className="h-3 w-3" />
-              Otvoriť
+              Open
             </Button>
           </Link>
           <Button
@@ -287,7 +287,7 @@ function SortableCategoryGroup({
             ))}
           </SortableContext>
           {category.pages.length === 0 && (
-            <p className="ml-8 text-xs text-muted-foreground py-2">Žiadne sekcie v tejto kategórii</p>
+            <p className="ml-8 text-xs text-muted-foreground py-2">No sections in this category</p>
           )}
         </div>
       )}
@@ -379,7 +379,7 @@ export default function ManageSectionsPage() {
   }
 
   async function handleDeleteSection(id: string, title: string) {
-    if (!confirm(`Naozaj chceš vymazať sekciu "${title}"? Táto akcia je nevratná.`)) return;
+    if (!confirm(`Delete section "${title}"? This action cannot be undone.`)) return;
     setDeleting(id);
     try {
       await fetch(`/api/pages?id=${id}`, { method: "DELETE" });
@@ -411,7 +411,7 @@ export default function ManageSectionsPage() {
   }
 
   async function handleDeleteCategory(id: string, name: string) {
-    if (!confirm(`Vymazať kategóriu "${name}"? Sekcie budú presunuté do nekategorizovaných.`)) return;
+    if (!confirm(`Delete category "${name}"? Sections will be moved to uncategorized.`)) return;
     try {
       await fetch(`/api/pages/categories?id=${id}`, { method: "DELETE" });
       await loadData();
@@ -526,7 +526,7 @@ export default function ManageSectionsPage() {
               <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
-          <h1 className="text-lg font-semibold tracking-tight">Spravovať Sekcie</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Manage Sections</h1>
           <div className="flex-1" />
           <Button
             size="sm"
@@ -535,7 +535,7 @@ export default function ManageSectionsPage() {
             onClick={() => { setShowCreateCategory(true); setShowCreateSection(false); }}
           >
             <Plus className="h-3.5 w-3.5" />
-            Kategória
+            Category
           </Button>
           <Button
             size="sm"
@@ -543,7 +543,7 @@ export default function ManageSectionsPage() {
             onClick={() => { setShowCreateSection(true); setShowCreateCategory(false); }}
           >
             <Plus className="h-3.5 w-3.5" />
-            Sekcia
+            Section
           </Button>
         </div>
       </div>
@@ -555,7 +555,7 @@ export default function ManageSectionsPage() {
           {showCreateSection && (
             <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/30">
               <Input
-                placeholder="Názov sekcie..."
+                placeholder="Section name..."
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 onKeyDown={(e) => {
@@ -567,10 +567,10 @@ export default function ManageSectionsPage() {
                 disabled={creating}
               />
               <Button size="sm" onClick={handleCreateSection} disabled={!newTitle.trim() || creating}>
-                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Vytvoriť"}
+                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Create"}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => { setShowCreateSection(false); setNewTitle(""); }}>
-                Zrušiť
+                Cancel
               </Button>
             </div>
           )}
@@ -579,7 +579,7 @@ export default function ManageSectionsPage() {
           {showCreateCategory && (
             <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/30">
               <Input
-                placeholder="Názov kategórie..."
+                placeholder="Category name..."
                 value={newCatName}
                 onChange={(e) => setNewCatName(e.target.value)}
                 onKeyDown={(e) => {
@@ -591,10 +591,10 @@ export default function ManageSectionsPage() {
                 disabled={creating}
               />
               <Button size="sm" onClick={handleCreateCategory} disabled={!newCatName.trim() || creating}>
-                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Vytvoriť"}
+                {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Create"}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => { setShowCreateCategory(false); setNewCatName(""); }}>
-                Zrušiť
+                Cancel
               </Button>
             </div>
           )}
@@ -610,7 +610,7 @@ export default function ManageSectionsPage() {
           {!loading && uncategorized.length === 0 && categories.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <FileText className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Žiadne sekcie. Vytvor novú sekciu alebo kategóriu.</p>
+              <p className="text-sm">No sections yet. Create a new section or category.</p>
             </div>
           )}
 
