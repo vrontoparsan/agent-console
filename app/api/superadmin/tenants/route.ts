@@ -25,7 +25,21 @@ export async function GET() {
     },
   });
 
-  return NextResponse.json({ tenants });
+  const [totalUsers, totalEvents, totalPages] = await Promise.all([
+    prisma.user.count({ where: { tenantId: { not: null } } }),
+    prisma.event.count(),
+    prisma.customPage.count(),
+  ]);
+
+  const stats = {
+    totalTenants: tenants.length,
+    activeTenants: tenants.filter((t) => t.active).length,
+    totalUsers,
+    totalEvents,
+    totalPages,
+  };
+
+  return NextResponse.json({ tenants, stats });
 }
 
 // POST: Create a new tenant

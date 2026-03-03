@@ -44,6 +44,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id;
         token.tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
       }
+      // Persist impersonation fields (set via impersonate-callback)
+      if (token.isImpersonating === undefined) token.isImpersonating = false;
       return token;
     },
     async session({ session, token }) {
@@ -51,6 +53,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role = token.role as string;
         session.user.id = token.id as string;
         session.user.tenantId = (token.tenantId as string | null) ?? null;
+        session.user.isImpersonating = token.isImpersonating ?? false;
       }
       return session;
     },

@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Zap, Building2 } from "lucide-react";
+import { LogoutButton } from "@/components/superadmin/logout-button";
 
 export default async function SuperadminLayout({
   children,
@@ -34,8 +35,9 @@ export default async function SuperadminLayout({
             Tenants
           </Link>
         </nav>
-        <div className="p-3 border-t border-border text-xs text-muted-foreground">
-          {session.user.email}
+        <div className="p-3 border-t border-border text-xs text-muted-foreground flex items-center justify-between">
+          <span className="truncate">{session.user.email}</span>
+          <LogoutButton />
         </div>
       </aside>
 

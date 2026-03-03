@@ -12,6 +12,7 @@ declare module "next-auth" {
       name: string;
       role: string;
       tenantId: string | null;
+      isImpersonating?: boolean;
     };
   }
 }
@@ -21,5 +22,7 @@ declare module "next-auth/jwt" {
     role?: string;
     id?: string;
     tenantId?: string | null;
+    isImpersonating?: boolean;
+    impersonatedBy?: string;
   }
 }

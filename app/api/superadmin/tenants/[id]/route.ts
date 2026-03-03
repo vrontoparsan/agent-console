@@ -37,7 +37,44 @@ export async function GET(
     return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
   }
 
-  return NextResponse.json(tenant);
+  // Health & monitoring data
+  const [lastEvent, lastMessage, messageCount, snapshotCount, emailAccountCount, cronJobCount] =
+    await Promise.all([
+      prisma.event.findFirst({
+        where: { tenantId: id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+      prisma.message.findFirst({
+        where: { tenantId: id },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+      prisma.message.count({ where: { tenantId: id } }),
+      prisma.snapshot.count({ where: { tenantId: id } }),
+      prisma.emailAccount.count({ where: { tenantId: id } }),
+      prisma.cronJob.count({ where: { tenantId: id } }),
+    ]);
+
+  const extra = tenant.extra as Record<string, unknown> | null;
+  const aiKeys = extra?.aiApiKeys as unknown[] | undefined;
+  const hasAiKeys = !!(aiKeys && aiKeys.length > 0);
+
+  const lastActivity = [lastEvent?.createdAt, lastMessage?.createdAt]
+    .filter(Boolean)
+    .sort((a, b) => new Date(b!).getTime() - new Date(a!).getTime())[0] ?? null;
+
+  return NextResponse.json({
+    ...tenant,
+    health: {
+      lastActivity: lastActivity ? lastActivity.toISOString() : null,
+      messageCount,
+      snapshotCount,
+      emailAccountCount,
+      cronJobCount,
+      hasAiKeys,
+    },
+  });
 }
 
 // PUT: Update tenant
@@ -51,7 +88,7 @@ export async function PUT(
   const { id } = await params;
   const body = await req.json();
 
-  const allowedFields = ["name", "companyName", "plan", "active", "ico", "dic", "icDph", "address", "email", "phone", "web"];
+  const allowedFields = ["name", "companyName", "plan", "active", "ico", "dic", "icDph", "address", "email", "phone", "web", "billingStatus", "billingNote"];
   const data: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (key in body) data[key] = body[key];

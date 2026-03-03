@@ -5,6 +5,16 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ExternalLink } from "lucide-react";
+
+type HealthData = {
+  lastActivity: string | null;
+  messageCount: number;
+  snapshotCount: number;
+  emailAccountCount: number;
+  cronJobCount: number;
+  hasAiKeys: boolean;
+};
 
 type TenantDetail = {
   id: string;
@@ -16,9 +26,29 @@ type TenantDetail = {
   email: string;
   phone: string;
   web: string;
+  billingStatus: string;
+  billingNote: string;
   createdAt: string;
   users: { id: string; email: string; name: string; role: string; createdAt: string }[];
   _count: { events: number; customPages: number; snapshots: number };
+  health: HealthData;
+};
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+const billingColors: Record<string, string> = {
+  trial: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+  active: "bg-green-500/10 text-green-400 border-green-500/20",
+  overdue: "bg-red-500/10 text-red-400 border-red-500/20",
+  cancelled: "bg-gray-500/10 text-gray-400",
 };
 
 export default function TenantDetailPage() {
@@ -27,7 +57,14 @@ export default function TenantDetailPage() {
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ companyName: "", plan: "", active: true });
+  const [impersonating, setImpersonating] = useState(false);
+  const [form, setForm] = useState({
+    companyName: "",
+    plan: "",
+    active: true,
+    billingStatus: "trial",
+    billingNote: "",
+  });
 
   useEffect(() => {
     fetch(`/api/superadmin/tenants/${id}`)
@@ -39,6 +76,8 @@ export default function TenantDetailPage() {
           companyName: data.companyName || "",
           plan: data.plan || "standard",
           active: data.active ?? true,
+          billingStatus: data.billingStatus || "trial",
+          billingNote: data.billingNote || "",
         });
         setLoading(false);
       })
@@ -61,8 +100,24 @@ export default function TenantDetailPage() {
     router.push("/superadmin");
   }
 
+  async function handleImpersonate() {
+    setImpersonating(true);
+    try {
+      const res = await fetch(`/api/superadmin/impersonate/${id}`, { method: "POST" });
+      const data = await res.json();
+      if (data.url) {
+        window.open(data.url, "_blank");
+      }
+    } catch {
+      // ignore
+    }
+    setImpersonating(false);
+  }
+
   if (loading) return <div className="p-8 text-muted-foreground">Loading...</div>;
   if (!tenant) return <div className="p-8 text-destructive">Tenant not found</div>;
+
+  const health = tenant.health;
 
   return (
     <div className="p-8 max-w-3xl">
@@ -73,13 +128,25 @@ export default function TenantDetailPage() {
             Slug: {tenant.slug} &middot; Created: {new Date(tenant.createdAt).toLocaleDateString()}
           </p>
         </div>
-        <Badge variant="secondary" className={tenant.active ? "bg-green-500/10 text-green-400" : ""}>
-          {tenant.active ? "Active" : "Inactive"}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={handleImpersonate}
+            disabled={impersonating}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {impersonating ? "Opening..." : "Open Console"}
+          </Button>
+          <Badge variant="secondary" className={tenant.active ? "bg-green-500/10 text-green-400" : ""}>
+            {tenant.active ? "Active" : "Inactive"}
+          </Badge>
+        </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-4 gap-4 mb-8">
         <div className="rounded-lg border border-border p-4">
           <div className="text-2xl font-bold">{tenant.users.length}</div>
           <div className="text-xs text-muted-foreground">Users</div>
@@ -92,9 +159,57 @@ export default function TenantDetailPage() {
           <div className="text-2xl font-bold">{tenant._count.customPages}</div>
           <div className="text-xs text-muted-foreground">Pages</div>
         </div>
+        <div className="rounded-lg border border-border p-4">
+          <div className="text-2xl font-bold">{tenant._count.snapshots}</div>
+          <div className="text-xs text-muted-foreground">Snapshots</div>
+        </div>
       </div>
 
-      {/* Edit Form */}
+      {/* Health & Activity */}
+      {health && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4">Health & Activity</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Last Activity</span>
+                <span className="text-sm font-medium">
+                  {health.lastActivity ? timeAgo(health.lastActivity) : "No activity"}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Messages</span>
+                <span className="text-sm font-medium">{health.messageCount}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Cron Jobs</span>
+                <span className="text-sm font-medium">{health.cronJobCount}</span>
+              </div>
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Email Accounts</span>
+                <span className="text-sm font-medium">{health.emailAccountCount}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Snapshots</span>
+                <span className="text-sm font-medium">{health.snapshotCount}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">AI Keys</span>
+                <Badge
+                  variant="secondary"
+                  className={`text-xs ${health.hasAiKeys ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}
+                >
+                  {health.hasAiKeys ? "Configured" : "Not set"}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settings */}
       <div className="space-y-4 mb-8">
         <h2 className="text-lg font-semibold">Settings</h2>
         <div className="space-y-2">
@@ -115,16 +230,45 @@ export default function TenantDetailPage() {
             <option value="enterprise">Enterprise</option>
           </select>
         </div>
-        <div className="flex gap-3 pt-2">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save Changes"}
-          </Button>
-          {tenant.active && (
-            <Button variant="outline" className="text-destructive" onClick={handleDeactivate}>
-              Deactivate
-            </Button>
-          )}
+      </div>
+
+      {/* Billing */}
+      <div className="space-y-4 mb-8">
+        <h2 className="text-lg font-semibold">Billing</h2>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Billing Status</label>
+          <select
+            value={form.billingStatus}
+            onChange={(e) => setForm({ ...form, billingStatus: e.target.value })}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+          >
+            <option value="trial">Trial</option>
+            <option value="active">Active</option>
+            <option value="overdue">Overdue</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Billing Notes</label>
+          <textarea
+            value={form.billingNote}
+            onChange={(e) => setForm({ ...form, billingNote: e.target.value })}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
+            placeholder="Internal billing notes..."
+          />
+        </div>
+      </div>
+
+      {/* Save / Deactivate */}
+      <div className="flex gap-3 mb-8">
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving..." : "Save Changes"}
+        </Button>
+        {tenant.active && (
+          <Button variant="outline" className="text-destructive" onClick={handleDeactivate}>
+            Deactivate
+          </Button>
+        )}
       </div>
 
       {/* Users */}
