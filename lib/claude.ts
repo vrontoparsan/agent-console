@@ -20,19 +20,6 @@ async function withFailover<T>(fn: (client: Anthropic) => Promise<T>): Promise<T
   throw new Error("All API keys failed");
 }
 
-export async function streamChat(
-  messages: { role: "user" | "assistant"; content: string }[],
-  systemPrompt?: string
-) {
-  const anthropic = await getAnthropicClient();
-  return anthropic.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 4096,
-    system: systemPrompt || "You are a helpful business assistant.",
-    messages,
-  });
-}
-
 export async function generateActions(
   eventTitle: string,
   eventContent: string,

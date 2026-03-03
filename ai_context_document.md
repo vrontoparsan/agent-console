@@ -78,7 +78,7 @@ lib/
   anthropic.ts            # Centralized Anthropic client: key loading from DB, failover, cache
   agent-tasks.ts          # In-memory active task registry (globalThis singleton)
   auth.ts                 # NextAuth config
-  claude.ts               # AI functions: streamChat, agenticChat, generateActions, classifyEmail, composeReply
+  claude.ts               # AI functions: agenticChat, generateActions, classifyEmail, composeReply
   prisma.ts               # Prisma singleton
   utils.ts                # cn() helper
   agent-tools/db-tools.ts # All AI agent tools (DB, Page, SQL, Instance)
@@ -140,9 +140,9 @@ Dockerfile                # Multi-stage Docker build
 - Middleware redirects unauthenticated users to `/login`
 
 ### Roles
-- **SUPERADMIN** — full access, agentic chat with tools, SQL execution, page management
-- **ADMIN** — full access, agentic chat with tools (no raw SQL)
-- **MANAGER** — restricted: only sees assigned categories/email accounts/pages, max 3 record updates, no delete, no SQL
+- **SUPERADMIN** — full access, agentic chat with DB tools, SQL execution, page management, UI Agent access
+- **ADMIN** — full access, agentic chat with DB tools (no raw SQL, no UI Agent)
+- **MANAGER** — restricted: only sees assigned categories/email accounts/pages, agentic chat with DB tools (max 3 record updates, no delete)
 
 ---
 
@@ -204,8 +204,8 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 
 ### Two Chat Contexts
 
-1. **Main Chat** (`/api/chat`) — general business chat, event-specific conversations, persistent via Message model with eventId
-2. **UI Chat** (`/api/ui-chat`) — UI Agent and page-editor, persistent via Message model with customPageId, threaded per section. Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages.
+1. **Main Chat** (`/api/chat`) — general business data assistant. Agentic mode with DB tools for ALL roles (query, create, update, delete). Role-based permissions: MANAGER limited to 3 records, no delete; ADMIN/SUPERADMIN full access. No page/SQL tools. History: 80 messages. Persistent via Message model with eventId.
+2. **UI Chat** (`/api/ui-chat`) — UI Agent (SUPERADMIN only) and page-editor, persistent via Message model with customPageId, threaded per section. Has full tool suite: DB + Page + Instance Page + SQL (SUPERADMIN). Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages.
 
 ### Background Processing (`/api/ui-chat`)
 
@@ -255,7 +255,7 @@ React component renders with SDK hooks and components
 - New sections use temporary threadId until page is created
 - When agent creates page, orphan messages auto-link to new page
 - Page editor (wand button on pages, right-side panel) shares the same thread
-- Wand button visible to SUPERADMIN by default; ADMIN access controlled by `CompanyInfo.extra.allowAdminUIAgent`
+- Wand button visible to SUPERADMIN only
 - Sections managed in `/settings/sections` with drag-and-drop tree (uses @dnd-kit)
 - Sections can be organized into collapsible categories (SectionCategory model)
 - Sidebar groups sections by category with collapsible headers (localStorage state)

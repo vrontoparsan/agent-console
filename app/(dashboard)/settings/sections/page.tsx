@@ -309,9 +309,6 @@ export default function ManageSectionsPage() {
   const [newCatName, setNewCatName] = useState("");
   const [creating, setCreating] = useState(false);
 
-  // Admin toggle
-  const [allowAdminUIAgent, setAllowAdminUIAgent] = useState(false);
-  const [settingsLoading, setSettingsLoading] = useState(true);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -341,21 +338,9 @@ export default function ManageSectionsPage() {
     setLoading(false);
   }, []);
 
-  const loadSettings = useCallback(async () => {
-    try {
-      const res = await fetch("/api/settings/company");
-      if (res.ok) {
-        const data = await res.json();
-        setAllowAdminUIAgent(!!(data.extra as Record<string, unknown>)?.allowAdminUIAgent);
-      }
-    } catch { /* ignore */ }
-    setSettingsLoading(false);
-  }, []);
-
   useEffect(() => {
     loadData();
-    loadSettings();
-  }, [loadData, loadSettings]);
+  }, [loadData]);
 
   async function handleCreateSection() {
     if (!newTitle.trim() || creating) return;
@@ -433,22 +418,6 @@ export default function ManageSectionsPage() {
     } catch { /* ignore */ }
   }
 
-  async function handleToggleAdminUIAgent() {
-    const newValue = !allowAdminUIAgent;
-    setAllowAdminUIAgent(newValue);
-    try {
-      const res = await fetch("/api/settings/company");
-      if (res.ok) {
-        const data = await res.json();
-        const extra = (data.extra as Record<string, unknown>) || {};
-        await fetch("/api/settings/company", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...data, extra: { ...extra, allowAdminUIAgent: newValue } }),
-        });
-      }
-    } catch { /* ignore */ }
-  }
 
   // ─── DnD handler ──────────────────────────────────────
   async function handleDragEnd(event: DragEndEvent) {
@@ -582,19 +551,6 @@ export default function ManageSectionsPage() {
       {/* Content */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto p-4 md:p-6 space-y-4">
-          {/* Admin toggle */}
-          {!settingsLoading && (
-            <label className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/30 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={allowAdminUIAgent}
-                onChange={handleToggleAdminUIAgent}
-                className="h-4 w-4 rounded border-border"
-              />
-              <span className="text-sm">Povoliť Adminovi editovať sekcie cez UI Agent</span>
-            </label>
-          )}
-
           {/* Create section form */}
           {showCreateSection && (
             <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-muted/30">

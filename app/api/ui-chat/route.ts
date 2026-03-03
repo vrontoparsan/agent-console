@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
   const isPageEditor = context === "page-editor";
   const isUIMode = isUIAgent || isPageEditor;
 
-  if (isUIAgent && !["SUPERADMIN", "ADMIN"].includes(userRole)) {
+  if (isUIAgent && userRole !== "SUPERADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

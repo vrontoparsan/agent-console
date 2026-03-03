@@ -32,28 +32,7 @@ export function CustomPageClient({
   const [chatOpen, setChatOpen] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: string } | null>(null);
   const [errorToReport, setErrorToReport] = useState<string | null>(null);
-  const [canUseAgent, setCanUseAgent] = useState(userRole === "SUPERADMIN");
-
-  // Check if ADMIN has UI Agent access
-  useEffect(() => {
-    if (userRole === "SUPERADMIN") {
-      setCanUseAgent(true);
-      return;
-    }
-    if (userRole !== "ADMIN") {
-      setCanUseAgent(false);
-      return;
-    }
-    // ADMIN: check company setting
-    fetch("/api/settings/company")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.extra?.allowAdminUIAgent) {
-          setCanUseAgent(true);
-        }
-      })
-      .catch(() => {});
-  }, [userRole]);
+  const canUseAgent = userRole === "SUPERADMIN";
 
   // Listen for instance SDK events
   useEffect(() => {
