@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { hash } from "bcryptjs";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json([], { status: 403 });
   }
 
-  const users = await prisma.user.findMany({
+  const users = await ctx.db.user.findMany({
     select: {
       id: true,
       email: true,
@@ -36,8 +37,10 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -47,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const hashed = await hash(password, 12);
-  const user = await prisma.user.create({
+  const user = await ctx.db.user.create({
     data: {
       email,
       name,
@@ -69,8 +72,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -79,7 +84,7 @@ export async function PUT(req: NextRequest) {
   if (password) data.password = await hash(password, 12);
 
   // Sync access in a transaction
-  const user = await prisma.$transaction(async (tx) => {
+  const user = await ctx.db.$transaction(async (tx) => {
     const updated = await tx.user.update({
       where: { id },
       data,
@@ -122,17 +127,19 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  if (id === session.user.id) {
+  if (id === ctx.session.user.id) {
     return NextResponse.json({ error: "Cannot delete yourself" }, { status: 400 });
   }
 
-  await prisma.user.delete({ where: { id } });
+  await ctx.db.user.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

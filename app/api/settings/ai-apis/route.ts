@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 import { invalidateKeyCache } from "@/lib/anthropic";
 
@@ -9,17 +9,19 @@ type ApiKeyEntry = {
 };
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const info = await prisma.companyInfo.findUnique({
-    where: { id: "default" },
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: ctx.tenantId },
     select: { extra: true },
   });
 
-  const extra = info?.extra as Record<string, unknown> | null;
+  const extra = tenant?.extra as Record<string, unknown> | null;
   const keys = (extra?.aiApiKeys as ApiKeyEntry[]) || [];
 
   // Mask tokens for display (show first 10 + last 4 chars)
@@ -37,8 +39,10 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -49,12 +53,12 @@ export async function PUT(req: NextRequest) {
   }
 
   // Load existing extra to preserve other fields
-  const info = await prisma.companyInfo.findUnique({
-    where: { id: "default" },
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: ctx.tenantId },
     select: { extra: true },
   });
 
-  const existingExtra = (info?.extra as Record<string, unknown>) || {};
+  const existingExtra = (tenant?.extra as Record<string, unknown>) || {};
 
   // If a token is masked (contains "..."), keep the old value
   const existingKeys = (existingExtra.aiApiKeys as ApiKeyEntry[]) || [];
@@ -68,10 +72,9 @@ export async function PUT(req: NextRequest) {
 
   const newExtra = { ...existingExtra, aiApiKeys: mergedKeys };
 
-  await prisma.companyInfo.upsert({
-    where: { id: "default" },
-    update: { extra: newExtra },
-    create: { id: "default", extra: newExtra },
+  await prisma.tenant.update({
+    where: { id: ctx.tenantId },
+    data: { extra: newExtra },
   });
 
   // Invalidate cached client so next request uses new keys

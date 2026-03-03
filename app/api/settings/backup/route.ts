@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -9,7 +9,6 @@ import * as nodemailer from "nodemailer";
 
 const execAsync = promisify(exec);
 
-const BACKUP_DIR = "/data/backups";
 const MAX_BACKUPS = 20; // Keep last 20 backups
 
 type BackupConfig = {
@@ -28,16 +27,24 @@ const DEFAULT_CONFIG: BackupConfig = {
   lastBackup: null,
 };
 
+function getBackupDir(tenantId: string) {
+  return `/data/tenants/${tenantId}/backups`;
+}
+
 // GET: Get backup config and list of backups
 export async function GET() {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Get config from CompanyInfo.extra or use defaults
-  const company = await prisma.companyInfo.findUnique({ where: { id: "default" } });
-  const extra = (company?.extra as Record<string, unknown>) || {};
+  const backupDir = getBackupDir(ctx.tenantId);
+
+  // Get config from Tenant.extra or use defaults
+  const tenant = await prisma.tenant.findUnique({ where: { id: ctx.tenantId } });
+  const extra = (tenant?.extra as Record<string, unknown>) || {};
   const config: BackupConfig = {
     ...DEFAULT_CONFIG,
     ...(extra.backupConfig as Partial<BackupConfig> || {}),
@@ -46,14 +53,14 @@ export async function GET() {
   // List existing backups
   let backups: { name: string; size: number; date: string }[] = [];
   try {
-    if (fs.existsSync(BACKUP_DIR)) {
-      const files = fs.readdirSync(BACKUP_DIR)
+    if (fs.existsSync(backupDir)) {
+      const files = fs.readdirSync(backupDir)
         .filter((f) => f.endsWith(".sql.gz") || f.endsWith(".sql"))
         .sort()
         .reverse();
 
       backups = files.map((f) => {
-        const stat = fs.statSync(path.join(BACKUP_DIR, f));
+        const stat = fs.statSync(path.join(backupDir, f));
         return {
           name: f,
           size: stat.size,
@@ -70,21 +77,22 @@ export async function GET() {
 
 // PUT: Update backup config
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const newConfig = await req.json();
 
   // Get existing extra
-  const company = await prisma.companyInfo.findUnique({ where: { id: "default" } });
-  const extra = (company?.extra as Record<string, unknown>) || {};
+  const tenant = await prisma.tenant.findUnique({ where: { id: ctx.tenantId } });
+  const extra = (tenant?.extra as Record<string, unknown>) || {};
 
-  await prisma.companyInfo.upsert({
-    where: { id: "default" },
-    update: { extra: { ...extra, backupConfig: newConfig } },
-    create: { id: "default", extra: { backupConfig: newConfig } },
+  await prisma.tenant.update({
+    where: { id: ctx.tenantId },
+    data: { extra: { ...extra, backupConfig: newConfig } },
   });
 
   return NextResponse.json({ ok: true });
@@ -92,10 +100,14 @@ export async function PUT(req: NextRequest) {
 
 // POST: Trigger backup now
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const backupDir = getBackupDir(ctx.tenantId);
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
@@ -104,11 +116,11 @@ export async function POST(req: NextRequest) {
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
   const filename = `backup-${timestamp}.sql.gz`;
-  const filepath = path.join(BACKUP_DIR, filename);
+  const filepath = path.join(backupDir, filename);
 
   try {
     // Ensure backup directory exists
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs.mkdirSync(backupDir, { recursive: true });
 
     // Run pg_dump with gzip
     await execAsync(`pg_dump "${dbUrl}" | gzip > "${filepath}"`, {
@@ -118,23 +130,22 @@ export async function POST(req: NextRequest) {
     const stat = fs.statSync(filepath);
 
     // Clean up old backups
-    const files = fs.readdirSync(BACKUP_DIR)
+    const files = fs.readdirSync(backupDir)
       .filter((f) => f.startsWith("backup-") && f.endsWith(".sql.gz"))
       .sort()
       .reverse();
 
     for (const f of files.slice(MAX_BACKUPS)) {
-      fs.unlinkSync(path.join(BACKUP_DIR, f));
+      fs.unlinkSync(path.join(backupDir, f));
     }
 
     // Update last backup timestamp in config
-    const company = await prisma.companyInfo.findUnique({ where: { id: "default" } });
-    const extra = (company?.extra as Record<string, unknown>) || {};
+    const tenant = await prisma.tenant.findUnique({ where: { id: ctx.tenantId } });
+    const extra = (tenant?.extra as Record<string, unknown>) || {};
     const config = (extra.backupConfig as Partial<BackupConfig>) || {};
-    await prisma.companyInfo.upsert({
-      where: { id: "default" },
-      update: { extra: { ...extra, backupConfig: { ...config, lastBackup: new Date().toISOString() } } },
-      create: { id: "default", extra: { backupConfig: { ...config, lastBackup: new Date().toISOString() } } },
+    await prisma.tenant.update({
+      where: { id: ctx.tenantId },
+      data: { extra: { ...extra, backupConfig: { ...config, lastBackup: new Date().toISOString() } } },
     });
 
     // Send email if configured
@@ -146,7 +157,7 @@ export async function POST(req: NextRequest) {
       const toEmail = config.email;
 
       if (emailAccountId && toEmail) {
-        const account = await prisma.emailAccount.findUnique({ where: { id: emailAccountId } });
+        const account = await ctx.db.emailAccount.findUnique({ where: { id: emailAccountId } });
         if (account && account.smtpHost && account.smtpUser) {
           try {
             const transport = nodemailer.createTransport({
@@ -194,17 +205,21 @@ export async function POST(req: NextRequest) {
 
 // DELETE: Delete a backup file
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const backupDir = getBackupDir(ctx.tenantId);
 
   const name = req.nextUrl.searchParams.get("name");
   if (!name || !name.startsWith("backup-")) {
     return NextResponse.json({ error: "Invalid backup name" }, { status: 400 });
   }
 
-  const filepath = path.join(BACKUP_DIR, name);
+  const filepath = path.join(backupDir, name);
   try {
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);

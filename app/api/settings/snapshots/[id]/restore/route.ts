@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { restoreSnapshot } from "@/lib/snapshots";
 
 // POST: Restore to a specific snapshot
@@ -7,15 +7,17 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { id } = await params;
 
   try {
-    const result = await restoreSnapshot(id);
+    const result = await restoreSnapshot(id, ctx.tenantId);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(

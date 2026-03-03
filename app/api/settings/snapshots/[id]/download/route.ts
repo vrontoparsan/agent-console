@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import * as fs from "fs";
 
-// GET: Download snapshot data file (SUPERADMIN only)
+// GET: Download snapshot data file (ADMIN only)
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { id } = await params;
 
-  const snapshot = await prisma.snapshot.findUnique({
+  const snapshot = await ctx.db.snapshot.findUnique({
     where: { id },
     select: { id: true, label: true, dataFile: true, createdAt: true },
   });

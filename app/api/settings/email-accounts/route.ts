@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 
 const MASK = "***";
 
@@ -13,25 +12,29 @@ function maskPasswords(account: Record<string, unknown>) {
 }
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
     return NextResponse.json([], { status: 403 });
   }
 
-  const accounts = await prisma.emailAccount.findMany({
+  const accounts = await ctx.db.emailAccount.findMany({
     orderBy: { createdAt: "asc" },
   });
   return NextResponse.json(accounts.map((a) => maskPasswords(a as unknown as Record<string, unknown>)));
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json();
-  const account = await prisma.emailAccount.create({
+  const account = await ctx.db.emailAccount.create({
     data: {
       label: body.label,
       email: body.email,
@@ -52,8 +55,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -63,12 +68,12 @@ export async function PUT(req: NextRequest) {
   }
 
   // If password is masked, preserve the existing value
-  const existing = await prisma.emailAccount.findUnique({ where: { id: body.id } });
+  const existing = await ctx.db.emailAccount.findUnique({ where: { id: body.id } });
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const account = await prisma.emailAccount.update({
+  const account = await ctx.db.emailAccount.update({
     where: { id: body.id },
     data: {
       label: body.label,
@@ -90,14 +95,16 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  await prisma.emailAccount.delete({ where: { id } });
+  await ctx.db.emailAccount.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

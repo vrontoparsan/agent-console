@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { createSnapshot } from "@/lib/snapshots";
 
-// GET: List snapshots with pagination (SUPERADMIN + ADMIN)
+// GET: List snapshots with pagination (ADMIN)
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -15,7 +16,7 @@ export async function GET(req: NextRequest) {
   const skip = (page - 1) * pageSize;
 
   const [snapshots, total] = await Promise.all([
-    prisma.snapshot.findMany({
+    ctx.db.snapshot.findMany({
       orderBy: { createdAt: "desc" },
       skip,
       take: pageSize,
@@ -31,16 +32,18 @@ export async function GET(req: NextRequest) {
         customPage: { select: { title: true, slug: true } },
       },
     }),
-    prisma.snapshot.count(),
+    ctx.db.snapshot.count(),
   ]);
 
-  return NextResponse.json({ snapshots, total, role: session.user.role });
+  return NextResponse.json({ snapshots, total, role: ctx.role });
 }
 
-// POST: Create manual snapshot (SUPERADMIN + ADMIN)
+// POST: Create manual snapshot (ADMIN)
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
