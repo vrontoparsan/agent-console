@@ -27,7 +27,7 @@ Agent Console is a **business management platform** built as a **Next.js 15 web 
 | Framework | Next.js 15.3 (App Router, standalone output) |
 | Language | TypeScript 5.7 |
 | Database | PostgreSQL (via Prisma 6 ORM) |
-| AI | Anthropic Claude Sonnet 4.6 (@anthropic-ai/sdk, OAuth auth) |
+| AI | Anthropic Claude Sonnet 4.6 (@anthropic-ai/sdk, OAuth + API key auth with failover) |
 | Auth | NextAuth 5 (JWT + Credentials provider) |
 | Styling | Tailwind CSS 4 + Radix UI + shadcn/ui |
 | Icons | lucide-react |
@@ -52,7 +52,7 @@ app/
     instance/email/       # Instance email sending
     pages/route.ts        # Custom pages list + create + delete + reorder (PATCH)
     pages/categories/     # Section categories CRUD + reorder
-    settings/             # All settings endpoints
+    settings/             # All settings endpoints (incl. ai-apis for API key management)
     ui-chat/route.ts      # UI Agent/page-editor chat with threads
     ui-chat/threads/      # Thread list for UI Agent
   (auth)/login/           # Login page
@@ -75,8 +75,10 @@ components/
     components/           # data-table, form, stats, text components
 
 lib/
+  anthropic.ts            # Centralized Anthropic client: key loading from DB, failover, cache
+  agent-tasks.ts          # In-memory active task registry (globalThis singleton)
   auth.ts                 # NextAuth config
-  claude.ts               # Anthropic SDK: streamChat, agenticChat, generateActions, classifyEmail, composeReply
+  claude.ts               # AI functions: streamChat, agenticChat, generateActions, classifyEmail, composeReply
   prisma.ts               # Prisma singleton
   utils.ts                # cn() helper
   agent-tools/db-tools.ts # All AI agent tools (DB, Page, SQL, Instance)
@@ -123,7 +125,7 @@ Dockerfile                # Multi-stage Docker build
 
 **AgentContext** — name, type (PERMANENT/CONDITIONAL), content (markdown), enabled, order
 
-**CompanyInfo** — name, ico, dic, icDph, address, email, phone, web, extra (singleton id="default", extra.allowAdminUIAgent controls ADMIN access to UI Agent)
+**CompanyInfo** — name, ico, dic, icDph, address, email, phone, web, extra (singleton id="default"; extra.allowAdminUIAgent controls ADMIN access to UI Agent; extra.aiApiKeys stores AI API keys for failover; extra.emailSettings stores tone/signature)
 
 **CronJob** — name, schedule, action, enabled, lastRun, nextRun
 
@@ -144,6 +146,21 @@ Dockerfile                # Multi-stage Docker build
 
 ---
 
+## AI Client Architecture (`lib/anthropic.ts`)
+
+### Centralized Client with Failover
+All Anthropic API calls go through a centralized client module (`lib/anthropic.ts`). No file should create `new Anthropic()` directly.
+
+- **Key storage**: `CompanyInfo.extra.aiApiKeys` — array of `{label, token}` (up to 3 slots)
+- **Env fallback**: If no DB keys found, falls back to `ANTHROPIC_OAUTH_TOKEN` env var
+- **Key type detection**: Tokens starting with `sk-ant-` → API key (`apiKey`), otherwise → OAuth token (`authToken` + beta header)
+- **Failover**: `withFailover()` helper in `claude.ts` catches 401/403 errors and rotates to next configured key (up to 3 attempts)
+- **Cache**: Keys loaded from DB with 60s TTL (globalThis singleton survives hot-reloads)
+- **Management**: Settings → AI APIs (SUPERADMIN only) — 3 key slots: primary + 2 backups
+- **API**: `getAnthropicClient()`, `failoverToNextKey()`, `invalidateKeyCache()`
+
+---
+
 ## AI Agent System
 
 ### How agenticChat Works (`lib/claude.ts`)
@@ -151,8 +168,8 @@ Dockerfile                # Multi-stage Docker build
 ```
 1. Receive user message(s) + system prompt + tools
 2. Loop (max 25 iterations):
-   a. Call Claude with messages + tools
-   b. If stop_reason = "tool_use": execute tools, add results to history, continue
+   a. Call Claude with messages + tools (client from getAnthropicClient())
+   b. If stop_reason = "tool_use": execute tools, add results to history, call onLoopComplete, continue
    c. If stop_reason = "max_tokens" with no tools: ask Claude to continue
    d. If stop_reason = "end_turn": break
 3. Return final text
@@ -160,8 +177,9 @@ Dockerfile                # Multi-stage Docker build
 
 - **max_tokens**: 32768
 - **model**: claude-sonnet-4-6
-- **Auth**: OAuth token via `authToken` + `anthropic-beta: oauth-2025-04-20` header
+- **Auth**: Centralized via `lib/anthropic.ts` (supports both OAuth and API keys with failover)
 - **Tool result size limit**: 8000 chars
+- **onLoopComplete callback**: Called after each tool loop iteration for intermediate progress saves
 
 ### Available Tools
 
@@ -188,6 +206,19 @@ Dockerfile                # Multi-stage Docker build
 
 1. **Main Chat** (`/api/chat`) — general business chat, event-specific conversations, persistent via Message model with eventId
 2. **UI Chat** (`/api/ui-chat`) — UI Agent and page-editor, persistent via Message model with customPageId, threaded per section. Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages.
+
+### Background Processing (`/api/ui-chat`)
+
+UI Agent processing continues in the background even when the user navigates away or refreshes:
+
+1. **Fire-and-forget**: `agenticChat` runs in a detached async IIFE inside `ReadableStream.start()` — NOT awaited. Stream closure doesn't abort processing.
+2. **`safeEnqueue()` wrapper**: Catches errors when stream is closed, prevents stream errors from aborting background work.
+3. **Intermediate saves**: `onLoopComplete` callback saves partial progress to DB (Message content + toolEvents) after each tool loop.
+4. **Active task registry** (`lib/agent-tasks.ts`): In-memory `Map<messageId, {startedAt}>` via globalThis — tracks running tasks to distinguish "still working" from "stuck after restart".
+5. **Staleness detection**: GET handler checks last assistant message: if `processing: true` for >150s AND not in `activeTasks` → auto-resolves as timed out.
+6. **Client polling**: On mount, if last message has `metadata.processing === true`, client polls GET every 3s for updates. Shows intermediate progress.
+7. **Message queue**: Messages sent while agent is busy go to client-side queue with "Čaká..." indicator. Auto-sent when current task completes.
+8. **Message metadata**: `{ processing: boolean, processingStartedAt: ISO, error?: boolean, timedOut?: boolean, toolEvents?: string[] }`
 
 ---
 
@@ -280,7 +311,7 @@ result:Your orders page has been created! It's now visible in the sidebar.
 ### Key Environment Variables
 ```
 DATABASE_URL              # PostgreSQL connection string
-ANTHROPIC_OAUTH_TOKEN     # Claude API auth
+ANTHROPIC_OAUTH_TOKEN     # Claude API auth (fallback if no DB keys configured)
 NEXTAUTH_SECRET           # JWT signing secret
 NEXTAUTH_URL              # App URL (for NextAuth)
 ADMIN_PASSWORD            # Initial admin password
@@ -329,7 +360,9 @@ ADMIN_PASSWORD            # Initial admin password
 | What | Where |
 |------|-------|
 | Prisma schema | `prisma/schema.prisma` |
-| Claude AI integration | `lib/claude.ts` |
+| Anthropic client (centralized) | `lib/anthropic.ts` |
+| Claude AI functions | `lib/claude.ts` |
+| Active task registry | `lib/agent-tasks.ts` |
 | All agent tools | `lib/agent-tools/db-tools.ts` |
 | Auth configuration | `lib/auth.ts` |
 | Instance SDK hooks | `lib/instance/sdk.tsx` |
@@ -344,6 +377,8 @@ ADMIN_PASSWORD            # Initial admin password
 | Sidebar navigation | `components/layout/nav.tsx` |
 | AgentChat component | `components/custom-page/agent-chat.tsx` |
 | Manage sections (DnD) | `app/(dashboard)/settings/sections/page.tsx` |
+| AI APIs settings | `app/(dashboard)/settings/ai-apis/page.tsx` |
+| AI APIs API | `app/api/settings/ai-apis/route.ts` |
 | Main chat panel | `components/chat/chat-panel.tsx` |
 | Markdown renderer | `components/chat/markdown.tsx` |
 | Dockerfile | `Dockerfile` |
