@@ -103,7 +103,11 @@ export default function TenantDetailPage() {
   async function handleImpersonate() {
     setImpersonating(true);
     try {
-      const res = await fetch(`/api/superadmin/impersonate/${id}`, { method: "POST" });
+      const res = await fetch("/api/superadmin/impersonate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: id }),
+      });
       const data = await res.json();
       if (data.url) {
         window.open(data.url, "_blank");

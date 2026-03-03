@@ -5,16 +5,16 @@ import { SignJWT } from "jose";
 
 const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || "secret");
 
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ tenantId: string }> }
-) {
+export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user || session.user.role !== "SUPERADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { tenantId } = await params;
+  const { tenantId } = await req.json();
+  if (!tenantId) {
+    return NextResponse.json({ error: "tenantId required" }, { status: 400 });
+  }
 
   // Find the tenant's ADMIN user
   const adminUser = await prisma.user.findFirst({
