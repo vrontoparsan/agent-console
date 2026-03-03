@@ -39,6 +39,16 @@ function renderComponent(config: ComponentConfig) {
 
 export function PageRenderer({ config }: { config: PageConfig }) {
   const layout = config.layout || "stack";
+  const components = config.components || [];
+
+  if (components.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+        <p className="text-sm">Táto sekcia zatiaľ nemá obsah.</p>
+        <p className="text-xs mt-1">Použite UI Agent na vytvorenie obsahu.</p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -49,7 +59,7 @@ export function PageRenderer({ config }: { config: PageConfig }) {
         layout === "grid-3" && "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
       )}
     >
-      {config.components.map((comp) => renderComponent(comp))}
+      {components.map((comp) => renderComponent(comp))}
     </div>
   );
 }
