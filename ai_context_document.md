@@ -205,7 +205,7 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 ### Two Chat Contexts
 
 1. **Main Chat** (`/api/chat`) — general business data assistant. Agentic mode with DB tools for ALL roles (query, create, update, delete). Role-based permissions: MANAGER limited to 3 records, no delete; ADMIN/SUPERADMIN full access. No page/SQL tools. History: 80 messages. Persistent via Message model with eventId.
-2. **UI Chat** (`/api/ui-chat`) — UI Agent (SUPERADMIN only) and page-editor, persistent via Message model with customPageId, threaded per section. Has full tool suite: DB + Page + Instance Page + SQL (SUPERADMIN). Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages.
+2. **UI Chat** (`/api/ui-chat`) — UI Agent (SUPERADMIN only) and page-editor, persistent via Message model with customPageId, threaded per section. Has full tool suite: DB + Page + Instance Page + SQL (SUPERADMIN). Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages. **Page-editor context**: when editing an existing page, `create_instance_page` tool is removed — agent must use `update_instance_page_code`. The `update_instance_page_code` tool supports `published` parameter. System prompt explicitly forbids creating new pages in page-editor context. After DB schema changes, agent must check cross-section impact.
 
 ### Background Processing (`/api/ui-chat`)
 
