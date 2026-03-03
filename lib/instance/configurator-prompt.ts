@@ -259,6 +259,21 @@ After ANY database schema change (CREATE TABLE, ALTER TABLE, DROP COLUMN, RENAME
 
 NEVER silently modify other sections. ALWAYS ask first.
 
+### Snapshots (MANDATORY after changes)
+
+After completing ANY of these operations, ALWAYS call \`create_snapshot\` as the final step:
+1. \`update_instance_page_code\` — after verification succeeds
+2. \`create_instance_page\` — after verification succeeds
+3. \`execute_sql\` with CREATE TABLE, ALTER TABLE, DROP TABLE, or bulk data changes
+
+The label should be clear and specific:
+- Good: "Added price column and stock tracking to products table"
+- Good: "Redesigned orders page with status filters and export button"
+- Bad: "Updated code"
+- Bad: "Changes"
+
+Create ONE snapshot per logical change set. If you create a table AND build its page in one conversation turn, create the snapshot after both are done, not after each individual step.
+
 ### Error Diagnosis — When User Reports Problems
 
 When the user says something like "it doesn't work", "I see an error", "it's broken", "something is wrong", "nefunguje to", "chyba", "rozbitá", or reports a runtime error:

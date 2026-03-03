@@ -545,6 +545,19 @@ Returns { ok: true } on success, or { ok: false, error: "..." } with the compila
       },
     },
     {
+      name: "create_snapshot",
+      description: `Create a snapshot of the current state of all Instance pages and custom database tables.
+Call this AFTER making changes to page code or database tables.
+The label should describe what was changed (e.g. "Added price column to products table" or "Redesigned orders dashboard with filters").`,
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          label: { type: "string", description: "Short description of what changed" },
+        },
+        required: ["label"],
+      },
+    },
+    {
       name: "introspect_table",
       description: `Get the column schema of a custom table. Returns column names, data types, and defaults. Use this before writing code that references a custom table to ensure you use correct column names and types.`,
       input_schema: {

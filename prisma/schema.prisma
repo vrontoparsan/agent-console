@@ -234,6 +234,7 @@ model CustomPage {
   category   SectionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   userAccess UserPageAccess[]
   messages   Message[]
+  snapshots  Snapshot[]
 
   @@index([categoryId])
 }
@@ -248,6 +249,32 @@ model UserPageAccess {
 
   @@unique([userId, pageId])
   @@index([userId])
+}
+
+model Snapshot {
+  id           String   @id @default(cuid())
+  label        String
+  parentId     String?
+  customPageId String?
+
+  codeState    Json
+  schemaDdl    String   @db.Text
+  dataFile     String?
+  dataHash     String?
+  dataSize     Int      @default(0)
+
+  isCurrent    Boolean  @default(false)
+
+  createdAt    DateTime @default(now())
+
+  parent       Snapshot?  @relation("SnapshotTree", fields: [parentId], references: [id])
+  children     Snapshot[] @relation("SnapshotTree")
+  customPage   CustomPage? @relation(fields: [customPageId], references: [id], onDelete: SetNull)
+
+  @@index([isCurrent])
+  @@index([createdAt(sort: Desc)])
+  @@index([dataHash])
+  @@index([customPageId])
 }
 
 model CronJob {

@@ -315,6 +315,10 @@ Important:
                   toolResult = await executeDbTool(name, input, userRole);
                 } else if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
                   toolResult = await executePageTool(name, input);
+                } else if (name === "create_snapshot") {
+                  const { createSnapshot } = await import("@/lib/snapshots");
+                  const snapshot = await createSnapshot(input.label as string, customPageId || undefined);
+                  toolResult = JSON.stringify({ created: { id: snapshot.id, label: snapshot.label, dataSize: snapshot.dataSize, deduplicated: snapshot.deduplicated } });
                 } else if (["create_instance_page", "update_instance_page_code", "get_instance_page", "verify_instance_code", "introspect_table", "list_instance_pages_code"].includes(name)) {
                   toolResult = await executeInstancePageTool(name, input);
                 } else if (name === "execute_sql") {

@@ -316,7 +316,7 @@ result:Your orders page has been created! It's now visible in the sidebar.
 - **Auto-deploy**: Push to `main` branch on GitHub → Railway builds Docker image → deploys
 - **Start sequence** (start.sh): prisma db push → seed.js → migrate-instance-schema.ts → server.js
 - **DB**: PostgreSQL on Railway (internal URL, not accessible from outside)
-- **Volume**: /data for backups and uploads
+- **Volume**: /data for backups, uploads, and snapshots
 
 ### Key Environment Variables
 ```
@@ -326,6 +326,22 @@ NEXTAUTH_SECRET           # JWT signing secret
 NEXTAUTH_URL              # App URL (for NextAuth)
 ADMIN_PASSWORD            # Initial admin password
 ```
+
+---
+
+## Snapshot System
+
+Instance pages and custom database tables are versioned via snapshots. The UI Agent creates snapshots automatically after making changes.
+
+- **Model**: `Snapshot` in Prisma — stores code state (JSON), schema DDL, and references compressed data dump files
+- **Storage**: Data dumps in `/data/snapshots/` as gzip-compressed pg_dump output. Never deleted.
+- **Deduplication**: SHA-256 hash of data dump. Code-only changes reuse the previous data file.
+- **Tree structure**: `parentId` self-reference supports branching (rollback + new change = new branch)
+- **Agent tool**: `create_snapshot(label)` — mandatory after code or schema changes
+- **Restore**: Creates auto-backup first, then restores code + drops/recreates instance schema
+- **UI**: Settings > Backup & Snapshots — timeline view with restore buttons
+- **API**: `GET/POST /api/settings/snapshots`, `POST /api/settings/snapshots/[id]/restore`
+- **Service**: `lib/snapshots.ts` — `createSnapshot()` and `restoreSnapshot()`
 
 ---
 

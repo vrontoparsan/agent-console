@@ -2,7 +2,7 @@
 echo "=== Agent Console Starting ==="
 
 # Create backup and uploads directories
-mkdir -p /data/backups /data/uploads
+mkdir -p /data/backups /data/uploads /data/snapshots
 echo "Data directories ready: /data/backups, /data/uploads"
 
 # Run Prisma migrations
