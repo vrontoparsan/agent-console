@@ -7,7 +7,7 @@ echo "Data directories ready"
 
 # Run Prisma migrations
 echo "Running database push..."
-npx prisma db push --skip-generate 2>&1 || echo "DB push failed (may already be up to date)"
+npx prisma db push --skip-generate --accept-data-loss 2>&1 || echo "DB push failed (may already be up to date)"
 
 # Seed database (idempotent — creates SUPERADMIN, migrates legacy data)
 echo "Running seed..."
