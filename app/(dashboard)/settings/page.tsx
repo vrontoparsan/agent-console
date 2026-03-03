@@ -72,8 +72,8 @@ const settingsItems = [
   },
   {
     href: "/settings/backup",
-    label: "Backup & Snapshots",
-    description: "Snapshots, database backups, schedule, volume and email delivery",
+    label: "Snapshots",
+    description: "Section snapshots with code and database restore",
     icon: HardDrive,
     roles: ["SUPERADMIN"],
   },
