@@ -10,6 +10,7 @@ import {
   Mail,
   Wand2,
   HardDrive,
+  Key,
 } from "lucide-react";
 
 const settingsItems = [
@@ -61,6 +62,13 @@ const settingsItems = [
     description: "Create, manage, and delete custom UI sections",
     icon: Wand2,
     roles: ["SUPERADMIN", "ADMIN"],
+  },
+  {
+    href: "/settings/ai-apis",
+    label: "AI APIs",
+    description: "API kľúče a tokeny s automatickým failoverom",
+    icon: Key,
+    roles: ["SUPERADMIN"],
   },
   {
     href: "/settings/backup",

@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicClient } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const anthropic = new Anthropic({
-  authToken: process.env.ANTHROPIC_OAUTH_TOKEN,
-  defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
-});
 
 /**
  * Voice-to-text API for Instance pages.
@@ -64,6 +59,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const anthropic = await getAnthropicClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await (anthropic.messages.create as any)({
       model: "claude-sonnet-4-6",

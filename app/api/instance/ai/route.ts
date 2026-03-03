@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  authToken: process.env.ANTHROPIC_OAUTH_TOKEN,
-  defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
-});
+import { getAnthropicClient } from "@/lib/anthropic";
 
 const MAX_CONTEXT_LENGTH = 10000;
 
@@ -34,6 +30,7 @@ export async function POST(req: NextRequest) {
     : prompt;
 
   try {
+    const anthropic = await getAnthropicClient();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 2048,

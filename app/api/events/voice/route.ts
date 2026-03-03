@@ -2,17 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { generateActions } from "@/lib/claude";
-import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicClient } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const anthropic = new Anthropic({
-  authToken: process.env.ANTHROPIC_OAUTH_TOKEN,
-  defaultHeaders: {
-    "anthropic-beta": "oauth-2025-04-20",
-  },
-});
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -42,6 +35,7 @@ export async function POST(req: NextRequest) {
 
     // Send to Claude for transcription + structuring
     // SDK types don't include audio yet, but the API supports it
+    const anthropic = await getAnthropicClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await (anthropic.messages.create as any)({
       model: "claude-sonnet-4-6",

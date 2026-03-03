@@ -1,17 +1,30 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Tool, MessageParam, ContentBlock } from "@anthropic-ai/sdk/resources/messages";
+import { getAnthropicClient, failoverToNextKey } from "@/lib/anthropic";
 
-const anthropic = new Anthropic({
-  authToken: process.env.ANTHROPIC_OAUTH_TOKEN,
-  defaultHeaders: {
-    "anthropic-beta": "oauth-2025-04-20",
-  },
-});
+/** Helper: call fn with automatic key failover on auth errors. */
+async function withFailover<T>(fn: (client: Anthropic) => Promise<T>): Promise<T> {
+  const maxAttempts = 3;
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const client = await getAnthropicClient();
+      return await fn(client);
+    } catch (err) {
+      const status = (err as { status?: number })?.status;
+      if ((status === 401 || status === 403) && i < maxAttempts - 1 && failoverToNextKey()) {
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error("All API keys failed");
+}
 
 export async function streamChat(
   messages: { role: "user" | "assistant"; content: string }[],
   systemPrompt?: string
 ) {
+  const anthropic = await getAnthropicClient();
   return anthropic.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 4096,
@@ -31,17 +44,19 @@ ${categoryContext ? `\nContext for this type of event:\n${categoryContext}` : ""
 Respond in JSON format:
 [{"title": "Action title", "description": "What this action does and why"}]`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: `Event: ${eventTitle}\n\nContent:\n${eventContent}`,
-      },
-    ],
-  });
+  const response = await withFailover((client) =>
+    client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: `Event: ${eventTitle}\n\nContent:\n${eventContent}`,
+        },
+      ],
+    })
+  );
 
   const text =
     response.content[0].type === "text" ? response.content[0].text : "";
@@ -66,10 +81,11 @@ export async function classifyAndSummarizeEmail(
     ? `\nAvailable categories:\n${categories.map((c) => `- ${c.id}: ${c.name}${c.contextMd ? ` (${c.contextMd.slice(0, 100)})` : ""}`).join("\n")}`
     : "";
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 512,
-    system: `You classify incoming business emails. Respond in JSON only.
+  const response = await withFailover((client) =>
+    client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 512,
+      system: `You classify incoming business emails. Respond in JSON only.
 ${categoryList}
 
 JSON format:
@@ -80,8 +96,9 @@ Rules:
 - MINUS = negative (complaint, issue, cancellation, problem, request needing attention)
 - When uncertain, default to MINUS (needs attention)
 - summary should be in the same language as the email`,
-    messages: [{ role: "user", content: `Subject: ${subject}\n\nBody:\n${bodyText.slice(0, 3000)}` }],
-  });
+      messages: [{ role: "user", content: `Subject: ${subject}\n\nBody:\n${bodyText.slice(0, 3000)}` }],
+    })
+  );
 
   const text = response.content[0].type === "text" ? response.content[0].text : "{}";
   try {
@@ -145,12 +162,14 @@ ${eventContent}
 ${chatHistory ? `\nInternal discussion about this event:\n${chatHistory}` : ""}
 ${actionDescription ? `\nAction to take: ${actionDescription}` : "\nWrite an appropriate reply to this email."}`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 2048,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userMsg }],
-  });
+  const response = await withFailover((client) =>
+    client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMsg }],
+    })
+  );
 
   let reply = response.content[0].type === "text" ? response.content[0].text : "";
 
@@ -196,6 +215,7 @@ export async function agenticChat({
       onText?.("\n\n");
     }
 
+    const anthropic = await getAnthropicClient();
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 32768,
