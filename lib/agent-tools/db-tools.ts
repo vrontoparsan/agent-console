@@ -506,6 +506,7 @@ ${SDK_REFERENCE}`,
           code: { type: "string", description: "New JSX code" },
           title: { type: "string" },
           icon: { type: "string" },
+          published: { type: "boolean", description: "Set page visibility in sidebar" },
         },
         required: ["slug", "code"],
       },
@@ -594,6 +595,7 @@ export async function executeInstancePageTool(
       const data: Record<string, unknown> = { code };
       if (input.title !== undefined) data.title = input.title;
       if (input.icon !== undefined) data.icon = input.icon;
+      if (input.published !== undefined) data.published = input.published;
       try {
         const page = await prisma.customPage.update({
           where: { slug: input.slug as string },

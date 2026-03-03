@@ -190,7 +190,13 @@ export async function POST(req: NextRequest) {
     const tools = [...getDbTools()];
     if (isUIMode) {
       tools.push(...getPageTools());
-      tools.push(...getInstancePageTools());
+      const instanceTools = getInstancePageTools();
+      if (isPageEditor && customPageId) {
+        // In page-editor: remove create_instance_page — agent must use update on existing page
+        tools.push(...instanceTools.filter(t => t.name !== "create_instance_page"));
+      } else {
+        tools.push(...instanceTools);
+      }
     }
     if (userRole === "SUPERADMIN") {
       tools.push(...getSqlTools());
@@ -217,8 +223,12 @@ export async function POST(req: NextRequest) {
       });
       if (page) {
         pageContext = `\n\n## Current Page Context
-You are working on the page "${page.title}" (slug: "${page.slug}"). Published: ${page.published}.
-${page.code ? `Current instance code:\n\`\`\`tsx\n${page.code}\n\`\`\`` : "No instance code yet (legacy JSON config or new page)."}`;
+**YOU ARE EDITING THIS PAGE. DO NOT CREATE A NEW PAGE.**
+- Page title: "${page.title}"
+- Page slug: "${page.slug}"
+- Published: ${page.published}
+- Use \`update_instance_page_code\` with slug "${page.slug}" to modify this page.
+${page.code ? `\nCurrent instance code:\n\`\`\`tsx\n${page.code}\n\`\`\`` : `\nThis page has NO code yet. Use \`update_instance_page_code\` with slug "${page.slug}" to add code to it. Do NOT create a new page.`}`;
       }
     }
 
