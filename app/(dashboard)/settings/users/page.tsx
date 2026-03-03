@@ -139,7 +139,7 @@ export default function UsersPage() {
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Agent</li>
                 <li>Sees all custom pages</li>
-                <li>Access to database Backup settings</li>
+                <li>Access to Snapshots with restore and download</li>
               </ul>
             )}
             {editing.role === "ADMIN" && (
@@ -150,6 +150,7 @@ export default function UsersPage() {
                 <li>Can bulk-edit unlimited records via chat</li>
                 <li>Can configure UI pages via UI Agent</li>
                 <li>Sees all custom pages</li>
+                <li>Access to Snapshots (view and create, no restore or download)</li>
               </ul>
             )}
             {editing.role === "MANAGER" && (

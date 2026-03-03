@@ -12,6 +12,7 @@ import {
   Circle,
   CheckCircle2,
   Database,
+  Download,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ type SnapshotItem = {
   parentId: string | null;
   customPageId: string | null;
   dataSize: number;
+  dataFile: string | null;
   isCurrent: boolean;
   createdAt: string;
   customPage: { title: string; slug: string } | null;
@@ -34,6 +36,18 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("sk-SK", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -43,18 +57,21 @@ function relativeTime(iso: string): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleString("sk-SK");
+  return formatDateTime(iso);
 }
 
 export default function SnapshotsPage() {
   const [snapshots, setSnapshots] = useState<SnapshotItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<string>("");
   const [restoring, setRestoring] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [confirmRestore, setConfirmRestore] = useState<SnapshotItem | null>(null);
+
+  const isSuperadmin = role === "SUPERADMIN";
 
   const loadSnapshots = useCallback(async () => {
     setLoading(true);
@@ -63,6 +80,7 @@ export default function SnapshotsPage() {
       const data = await res.json();
       setSnapshots(data.snapshots || []);
       setTotal(data.total || 0);
+      if (data.role) setRole(data.role);
     }
     setLoading(false);
   }, []);
@@ -203,8 +221,9 @@ export default function SnapshotsPage() {
                       <p className={cn("text-sm truncate", s.isCurrent ? "font-medium" : "")}>
                         {s.label}
                       </p>
-                      <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                        <span>{relativeTime(s.createdAt)}</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-xs text-muted-foreground">
+                        <span>{formatDateTime(s.createdAt)}</span>
+                        <span className="text-muted-foreground/40">({relativeTime(s.createdAt)})</span>
                         {s.customPage && (
                           <span className="text-primary/70">{s.customPage.title}</span>
                         )}
@@ -216,22 +235,37 @@ export default function SnapshotsPage() {
                         )}
                       </div>
                     </div>
-                    {!s.isCurrent && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 text-xs h-7"
-                        onClick={() => setConfirmRestore(s)}
-                        disabled={restoring !== null}
-                      >
-                        {restoring === s.id ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3 w-3" />
-                        )}
-                        Restore
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Download — SUPERADMIN only, only if data file exists */}
+                      {isSuperadmin && s.dataFile && s.dataSize > 0 && (
+                        <a href={`/api/settings/snapshots/${s.id}/download`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs h-7 text-muted-foreground"
+                          >
+                            <Download className="h-3 w-3" />
+                          </Button>
+                        </a>
+                      )}
+                      {/* Restore — SUPERADMIN only */}
+                      {isSuperadmin && !s.isCurrent && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-7"
+                          onClick={() => setConfirmRestore(s)}
+                          disabled={restoring !== null}
+                        >
+                          {restoring === s.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-3 w-3" />
+                          )}
+                          Restore
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -248,7 +282,7 @@ export default function SnapshotsPage() {
             <div className="space-y-2">
               <p className="text-sm font-medium">&quot;{confirmRestore.label}&quot;</p>
               <p className="text-xs text-muted-foreground">
-                {new Date(confirmRestore.createdAt).toLocaleString("sk-SK")}
+                {formatDateTime(confirmRestore.createdAt)}
               </p>
             </div>
             <div className="text-xs text-muted-foreground space-y-1">

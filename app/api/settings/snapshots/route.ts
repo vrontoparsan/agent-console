@@ -3,10 +3,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createSnapshot } from "@/lib/snapshots";
 
-// GET: List snapshots with pagination
+// GET: List snapshots with pagination (SUPERADMIN + ADMIN)
 export async function GET(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
         parentId: true,
         customPageId: true,
         dataSize: true,
+        dataFile: true,
         isCurrent: true,
         createdAt: true,
         customPage: { select: { title: true, slug: true } },
@@ -33,13 +34,13 @@ export async function GET(req: NextRequest) {
     prisma.snapshot.count(),
   ]);
 
-  return NextResponse.json({ snapshots, total });
+  return NextResponse.json({ snapshots, total, role: session.user.role });
 }
 
-// POST: Create manual snapshot
+// POST: Create manual snapshot (SUPERADMIN + ADMIN)
 export async function POST(req: NextRequest) {
   const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

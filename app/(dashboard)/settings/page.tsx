@@ -75,7 +75,7 @@ const settingsItems = [
     label: "Snapshots",
     description: "Section snapshots with code and database restore",
     icon: HardDrive,
-    roles: ["SUPERADMIN"],
+    roles: ["SUPERADMIN", "ADMIN"],
   },
 ];
 
