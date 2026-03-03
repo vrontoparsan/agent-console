@@ -244,6 +244,16 @@ React component renders with SDK hooks and components
 - **Utilities**: sdk.notify(), sdk.navigate(), sdk.formatDate(), sdk.formatDateTime(), sdk.formatCurrency(), sdk.formatNumber(), sdk.download(), sdk.sendEmail()
 - **Convention**: Code must end with `var __default__ = ComponentName;`
 
+### Document Scanning (useCamera + useAI with images)
+
+Instance pages can capture photos and extract data using AI vision:
+
+1. **`useCamera()`** — Opens native camera (mobile rear cam) or file picker (desktop). Returns `{ capture, image, loading, error, clear }`. Image is auto-resized to max 1600px JPEG.
+2. **`useAI().ask(prompt, { images: [base64] })`** — Sends images to Claude vision via `/api/instance/ai`. Max 3 images, 10MB each. `max_tokens: 12288`.
+3. **Flow**: `capture()` → preview → `ai.ask("Extract...", { images: [camera.image] })` → parse JSON → fill form → save to DB.
+4. **No file storage** — images are processed in memory and discarded. Only extracted data is persisted in cstm_ tables.
+5. **API**: `/api/instance/ai` accepts `{ prompt, context?, images?: string[] }`. Images are raw base64 (no data URL prefix).
+
 ### Custom Tables
 - Prefix: always `cstm_` (e.g., cstm_orders, cstm_products)
 - Required columns: id (TEXT PK, gen_random_uuid()), created_at, updated_at
@@ -370,6 +380,7 @@ ADMIN_PASSWORD            # Initial admin password
 | JSX compiler | `lib/instance/compile.ts` |
 | JSX sandbox | `lib/instance/sandbox.tsx` |
 | UI Agent prompt | `lib/instance/configurator-prompt.ts` |
+| Instance AI API (+ vision) | `app/api/instance/ai/route.ts` |
 | Main chat API | `app/api/chat/route.ts` |
 | UI Agent chat API | `app/api/ui-chat/route.ts` |
 | Custom table CRUD API | `app/api/cstm/route.ts` |
