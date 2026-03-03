@@ -37,6 +37,11 @@ export default auth((req) => {
     return NextResponse.next();
   }
 
+  // SUPERADMIN should not access tenant routes (no tenantId)
+  if (userRole === "SUPERADMIN" && !pathname.startsWith("/api/auth")) {
+    return NextResponse.redirect(new URL("/superadmin", req.url));
+  }
+
   return NextResponse.next();
 });
 
