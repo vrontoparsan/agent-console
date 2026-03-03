@@ -1,4 +1,4 @@
-# Agent Console — AI Context Document
+# Agent Bizi — AI Context Document
 
 > **This document is for AI assistants, not humans.** It provides comprehensive context for any AI working on this codebase. **You MUST update this document when you make significant changes** (new features, schema changes, new API routes, architectural decisions).
 
@@ -6,15 +6,17 @@ Last updated: 2026-03-03
 
 ---
 
-## What Is Agent Console?
+## What Is Agent Bizi?
 
-Agent Console is a **business management platform** built as a **Next.js 15 web app** (also works as a mobile PWA). It helps companies manage events, communication, and custom business workflows through an AI-powered agent.
+Agent Bizi is a **multi-tenant SaaS business management platform** built as a **Next.js 15 web app** (also works as a mobile PWA). It helps companies manage events, communication, and custom business workflows through an AI-powered agent. Each company (tenant) gets fully isolated data and custom sections.
 
 **Key characteristics:**
 - Full-stack TypeScript app (Next.js 15 App Router + Prisma 6 + PostgreSQL)
+- **Multi-tenant**: schema-per-tenant for custom tables, row-level isolation on shared Prisma tables
 - AI-powered with Anthropic Claude (Sonnet 4.6) via OAuth
-- Role-based access control (SUPERADMIN, ADMIN, MANAGER)
+- Role-based access control (SUPERADMIN = platform admin, ADMIN = tenant admin, MANAGER = restricted user)
 - Custom section system ("Instance Pages") where AI generates runtime-compiled React JSX
+- Self-service signup with automatic tenant provisioning
 - Email integration (IMAP polling + SMTP sending)
 - Deployed on Railway with auto-deploy from GitHub
 
@@ -41,10 +43,12 @@ Agent Console is a **business management platform** built as a **Next.js 15 web 
 
 ```
 app/
+  page.tsx                # Landing page (public, marketing)
   api/                    # REST API routes
     auth/                 # NextAuth endpoints
+      signup/route.ts     # Self-service signup API (creates Tenant + User + schema)
     chat/route.ts         # Main chat (event-specific or general)
-    cstm/route.ts         # Custom table CRUD (instance schema)
+    cstm/route.ts         # Custom table CRUD (tenant schema)
     data/route.ts         # Data query endpoint
     events/               # Event CRUD + voice input
     files/parse/          # File parsing (PDF, DOCX, XLSX, images)
@@ -53,16 +57,22 @@ app/
     pages/route.ts        # Custom pages list + create + delete + reorder (PATCH)
     pages/categories/     # Section categories CRUD + reorder
     settings/             # All settings endpoints (incl. ai-apis for API key management)
+    superadmin/tenants/   # Tenant CRUD (SUPERADMIN only)
     ui-chat/route.ts      # UI Agent/page-editor chat with threads
     ui-chat/threads/      # Thread list for UI Agent
-  (auth)/login/           # Login page
-  (dashboard)/            # Protected routes
+  (auth)/
+    login/                # Login page
+    signup/               # Self-service signup page
+  (dashboard)/            # Protected tenant routes
     events/               # Events dashboard
     chat/                 # General chat
     data/                 # Data browser
     p/[slug]/             # Dynamic custom pages
     settings/             # All settings pages
       sections/           # Manage sections (DnD tree, categories, admin toggle)
+  superadmin/             # Platform admin panel (SUPERADMIN only)
+    page.tsx              # Tenant list + management
+    layout.tsx            # Superadmin layout
 
 components/
   ui/                     # shadcn/ui primitives (Button, Input, Badge, Card, etc.)
@@ -75,11 +85,13 @@ components/
     components/           # data-table, form, stats, text components
 
 lib/
-  anthropic.ts            # Centralized Anthropic client: key loading from DB, failover, cache
+  anthropic.ts            # Centralized Anthropic client: per-tenant key loading, failover, cache
+  api-utils.ts            # requireTenantAuth(), isAuthError(), requireAuth() helpers
   agent-tasks.ts          # In-memory active task registry (globalThis singleton)
-  auth.ts                 # NextAuth config
+  auth.ts                 # NextAuth config (tenantId in JWT)
   claude.ts               # AI functions: agenticChat, generateActions, classifyEmail, composeReply
   prisma.ts               # Prisma singleton
+  prisma-tenant.ts        # tenantPrisma(tenantId) Prisma Client Extension, getTenantSchema()
   utils.ts                # cn() helper
   agent-tools/db-tools.ts # All AI agent tools (DB, Page, SQL, Instance)
   email/                  # IMAP poller, reply composer, poll scheduler
@@ -90,9 +102,11 @@ lib/
     sdk-components.tsx    # SDK UI components for Instance pages
     configurator-prompt.ts # Expert system prompt for UI Agent
 
-prisma/schema.prisma      # All database models
-scripts/                  # Migration scripts
-middleware.ts             # Auth guard
+prisma/schema.prisma      # All database models (incl. Tenant)
+scripts/
+  migrate-tenant-schemas.ts  # Per-tenant schema creation, legacy instance→tenant migration
+  migrate-instance-schema.ts # Legacy (kept for backward compat)
+middleware.ts             # Auth guard with public/platform/tenant zones
 instrumentation.ts        # Email polling startup
 start.sh                  # Railway startup script
 Dockerfile                # Multi-stage Docker build
@@ -102,36 +116,78 @@ Dockerfile                # Multi-stage Docker build
 
 ## Database Architecture
 
-### Two PostgreSQL Schemas
+### PostgreSQL Schema Strategy
 
-1. **`public` schema** — Core app tables managed by Prisma (User, Event, Message, CustomPage, etc.)
-2. **`instance` schema** — Custom tables created by AI/users (prefixed `cstm_`). Auto-qualified by `qualifyInstanceTables()` in db-tools.ts.
+1. **`public` schema** — Core app tables managed by Prisma (Tenant, User, Event, Message, CustomPage, etc.). Shared tables use row-level isolation via `tenantId` column.
+2. **`tenant_{id}` schemas** (one per tenant) — Custom tables created by AI/users (prefixed `cstm_`). Auto-qualified by `qualifyInstanceTables()` in db-tools.ts using `getTenantSchema(tenantId)`.
+
+> **Replaced**: The old single `instance` schema has been replaced by per-tenant schemas (`tenant_{id}`). The migration script renames `instance` to `tenant_{firstTenantId}` on first run.
 
 ### Key Models
 
-**User** — email, name, password (bcrypt), role (SUPERADMIN/ADMIN/MANAGER)
+**Tenant** — name, slug (unique), plan, active, company fields (companyName, ico, dic, icDph, address, email, phone, web), extra (JSON: aiApiKeys, allowAdminUIAgent, emailSettings). **Absorbs the old CompanyInfo fields.** All tenant-scoped models have a `tenantId` FK pointing here.
 
-**Event** — title, summary, rawContent, source, type (PLUS/MINUS), status (NEW/IN_PROGRESS/RESOLVED/ARCHIVED), priority, categoryId, assignedTo, emailAccountId, senderEmail, metadata
+**User** — email, name, password (bcrypt), role (SUPERADMIN/ADMIN/MANAGER), tenantId? (null for SUPERADMIN). Unique constraint: `@@unique([email, tenantId])` — same email can exist in different tenants.
 
-**Message** — content, role (user/assistant), eventId? (event chat), customPageId? (UI Agent thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for UI Agent)
+**Event** — title, summary, rawContent, source, type (PLUS/MINUS), status (NEW/IN_PROGRESS/RESOLVED/ARCHIVED), priority, categoryId, assignedTo, emailAccountId, senderEmail, metadata, tenantId
 
-**CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published (defaults true for new sections), order, categoryId? (→ SectionCategory)
+**Message** — content, role (user/assistant), eventId? (event chat), customPageId? (UI Agent thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for UI Agent), tenantId
 
-**Snapshot** — label, parentId? (tree structure), customPageId?, codeState (JSON: all page codes), schemaDdl (Text: instance DDL), dataFile? (path to gzip dump), dataHash? (SHA-256 for dedup), dataSize, isCurrent (only one active)
+**CustomPage** — slug, title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published (defaults true for new sections), order, categoryId? (→ SectionCategory), tenantId. Unique constraint: `@@unique([slug, tenantId])`.
 
-**SectionCategory** — name, order (for sidebar grouping of custom pages)
+**Snapshot** — label, parentId? (tree structure), customPageId?, codeState (JSON: all page codes), schemaDdl (Text: tenant schema DDL), dataFile? (path to gzip dump), dataHash? (SHA-256 for dedup), dataSize, isCurrent (only one active), tenantId
 
-**EventAction** — eventId, title, description, status (SUGGESTED→COMPLETED), aiSuggested, result
+**SectionCategory** — name, order (for sidebar grouping of custom pages), tenantId
 
-**EmailAccount** — IMAP + SMTP credentials, enabled, lastPolledAt, lastError
+**EventAction** — eventId, title, description, status (SUGGESTED→COMPLETED), aiSuggested, result, tenantId
 
-**AgentContext** — name, type (PERMANENT/CONDITIONAL), content (markdown), enabled, order
+**EmailAccount** — IMAP + SMTP credentials, enabled, lastPolledAt, lastError, tenantId
 
-**CompanyInfo** — name, ico, dic, icDph, address, email, phone, web, extra (singleton id="default"; extra.allowAdminUIAgent controls ADMIN access to UI Agent; extra.aiApiKeys stores AI API keys for failover; extra.emailSettings stores tone/signature)
+**AgentContext** — name, type (PERMANENT/CONDITIONAL), content (markdown), enabled, order, tenantId
 
-**CronJob** — name, schedule, action, enabled, lastRun, nextRun
+**CompanyInfo** — *(kept for migration backward compat, will be dropped later)*. Singleton id="default".
+
+**CronJob** — name, schedule, action, enabled, lastRun, nextRun, tenantId
 
 **Access tables** — UserCategoryAccess, UserEmailAccountAccess, UserPageAccess (junction tables for MANAGER permissions)
+
+---
+
+## Multi-Tenancy Architecture
+
+### Isolation Strategy
+Agent Bizi uses a **hybrid isolation** model:
+- **Shared tables** (Prisma models): Row-level isolation via `tenantId` column on every tenant-scoped model. Enforced by `tenantPrisma(tenantId)` Prisma Client Extension.
+- **Custom tables** (`cstm_*`): Schema-level isolation. Each tenant gets its own PostgreSQL schema (`tenant_{tenantId}`) for complete DDL/data separation.
+
+### Key Components
+
+**`lib/prisma-tenant.ts`** — `tenantPrisma(tenantId)`:
+- Returns a Prisma client extension that auto-injects `tenantId` filter on all operations (findMany, findFirst, create, update, delete, count, aggregate)
+- `findUnique` post-checks tenantId on the result (can't add WHERE on unique queries)
+- `create`/`createMany` auto-sets tenantId on new records
+- Scoped models: User, Event, EventCategory, EmailAccount, EventAction, Message, CustomPage, SectionCategory, AgentContext, CronJob, Snapshot
+
+**`lib/prisma-tenant.ts`** — `getTenantSchema(tenantId)`:
+- Returns `tenant_{tenantId}` — the PostgreSQL schema name for custom tables
+
+**`lib/api-utils.ts`** — `requireTenantAuth()`:
+- Standard auth guard for all tenant API routes
+- Returns `{ session, tenantId, tenantSchema, db, role }` or `{ error: NextResponse }`
+- `isAuthError()` type guard for checking the result
+- `requireAuth()` — lighter variant that allows SUPERADMIN (no tenant context)
+
+### Tenant Lifecycle
+1. **Signup**: `POST /api/auth/signup` → creates `Tenant` + `User(role=ADMIN)` + `CREATE SCHEMA tenant_{id}`
+2. **Runtime**: Every API request extracts `tenantId` from JWT → `tenantPrisma(tenantId)` scopes all queries
+3. **Custom tables**: SQL operations use `qualifyInstanceTables(sql, getTenantSchema(tenantId))` to rewrite `cstm_*` → `tenant_{id}.cstm_*`
+4. **AI keys**: Loaded from `Tenant.extra.aiApiKeys` with per-tenant caching in `lib/anthropic.ts`
+5. **Snapshots**: Stored in `/data/tenants/{tenantId}/snapshots/`, pg_dump scoped to `tenant_{id}` schema
+
+### Migration from Single-Tenant
+- `seed.js` creates a default Tenant and migrates existing User/Event/etc. records by setting their `tenantId`
+- `scripts/migrate-tenant-schemas.ts` renames the legacy `instance` schema to `tenant_{firstTenantId}`, creates schemas for any additional tenants, and moves stray `cstm_*` tables from `public`
+- `CompanyInfo` model kept temporarily for backward compat; its fields are now on the `Tenant` model
 
 ---
 
@@ -139,27 +195,40 @@ Dockerfile                # Multi-stage Docker build
 
 - **NextAuth 5** with JWT strategy (no session DB)
 - Credentials provider (email + password)
-- Middleware redirects unauthenticated users to `/login`
+- **JWT contains `tenantId`** — set during login from `User.tenantId`, propagated to session via callbacks
+- Session-based routing: all tenants share the same URL space (no subdomain/path prefix per tenant)
+- `requireTenantAuth()` helper in `lib/api-utils.ts` returns `{session, tenantId, tenantSchema, db, role}` — use in all tenant API routes
+
+### Middleware Zones (`middleware.ts`)
+1. **Public** — `/`, `/login`, `/signup`, `/api/auth/*` — no auth required. Logged-in users redirected: SUPERADMIN → `/superadmin`, others → `/events`.
+2. **Platform** — `/superadmin/*`, `/api/superadmin/*` — SUPERADMIN only. Non-SUPERADMIN redirected to `/events`.
+3. **Tenant** — everything else — requires authentication + tenantId in session.
 
 ### Roles
-- **SUPERADMIN** — full access, agentic chat with DB tools, SQL execution, page management, UI Agent access
-- **ADMIN** — full access, agentic chat with DB tools (no raw SQL, no UI Agent)
-- **MANAGER** — restricted: only sees assigned categories/email accounts/pages, agentic chat with DB tools (max 3 record updates, no delete)
+- **SUPERADMIN** — platform-level admin. `tenantId: null`. Manages tenants via `/superadmin`. No tenant data access (no tenantId in session).
+- **ADMIN** — tenant admin. Full access within their tenant: agentic chat with DB tools, page management, UI Agent access, settings.
+- **MANAGER** — restricted user within tenant: only sees assigned categories/email accounts/pages, agentic chat with DB tools (max 3 record updates, no delete)
+
+### Signup Flow
+1. User fills `/signup` form (company name, email, password)
+2. `POST /api/auth/signup` creates Tenant (slug from company name) + User (role=ADMIN) + PostgreSQL schema (`tenant_{id}`)
+3. User redirected to `/login`
 
 ---
 
 ## AI Client Architecture (`lib/anthropic.ts`)
 
-### Centralized Client with Failover
+### Centralized Client with Per-Tenant Key Caching
 All Anthropic API calls go through a centralized client module (`lib/anthropic.ts`). No file should create `new Anthropic()` directly.
 
-- **Key storage**: `CompanyInfo.extra.aiApiKeys` — array of `{label, token}` (up to 3 slots)
-- **Env fallback**: If no DB keys found, falls back to `ANTHROPIC_OAUTH_TOKEN` env var
+- **Key storage**: `Tenant.extra.aiApiKeys` — array of `{label, token}` (up to 3 slots per tenant)
+- **Per-tenant cache**: `Map<tenantId, TenantCache>` on globalThis. Each tenant gets independent key rotation. Cache key `"__default__"` used when no tenantId (legacy/migration compat).
+- **Env fallback**: If no DB keys found for the tenant, falls back to `ANTHROPIC_OAUTH_TOKEN` env var
 - **Key type detection**: Tokens starting with `sk-ant-oat` → OAuth token (`authToken` + `anthropic-beta: oauth-2025-04-20` header); all other tokens → API key (`apiKey`). Important: both OAuth and API keys share the `sk-ant-` prefix, so must check for `sk-ant-oat` specifically.
 - **Failover**: `withFailover()` helper in `claude.ts` catches 401/403 errors and rotates to next configured key (up to 3 attempts)
-- **Cache**: Keys loaded from DB with 60s TTL (globalThis singleton survives hot-reloads)
-- **Management**: Settings → AI APIs (SUPERADMIN only) — 3 key slots: primary + 2 backups
-- **API**: `getAnthropicClient()`, `failoverToNextKey()`, `invalidateKeyCache()`
+- **Cache TTL**: 60s per tenant (globalThis singleton survives hot-reloads)
+- **Management**: Settings → AI APIs (ADMIN only within tenant) — 3 key slots: primary + 2 backups
+- **API**: `getAnthropicClient(tenantId?)`, `failoverToNextKey(tenantId?)`, `invalidateKeyCache(tenantId?)`
 
 ---
 
@@ -261,7 +330,8 @@ Instance pages can capture photos and extract data using AI vision:
 ### Custom Tables
 - Prefix: always `cstm_` (e.g., cstm_orders, cstm_products)
 - Required columns: id (TEXT PK, gen_random_uuid()), created_at, updated_at
-- Live in `instance` PostgreSQL schema (isolated from Core)
+- Live in per-tenant PostgreSQL schema (`tenant_{tenantId}`) — fully isolated between tenants
+- `qualifyInstanceTables(sql, tenantSchema)` rewrites `cstm_xxx` to `tenant_{id}.cstm_xxx` in SQL
 - CRUD via `/api/cstm` endpoint
 
 ### UI Agent Threading
@@ -318,14 +388,18 @@ result:Your orders page has been created! It's now visible in the sidebar.
 
 - **Platform**: Railway
 - **Auto-deploy**: Push to `main` branch on GitHub → Railway builds Docker image → deploys
-- **Start sequence** (start.sh): prisma db push → seed.js → migrate-instance-schema.ts → server.js
+- **Start sequence** (start.sh): `mkdir -p /data/tenants /data/uploads` → `prisma db push` → `seed.js` (migrates legacy data to default tenant) → `migrate-tenant-schemas.ts` (creates per-tenant schemas, renames `instance` → `tenant_*`) → `server.js`
 - **DB**: PostgreSQL on Railway (internal URL, not accessible from outside)
-- **Volume**: /data for backups, uploads, and snapshots
+- **Volume**: /data for uploads and per-tenant snapshots
+
+### File Storage
+- Per-tenant directories: `/data/tenants/{tenantId}/snapshots/` for data dumps
+- Shared: `/data/uploads/` for file uploads
 
 ### Key Environment Variables
 ```
 DATABASE_URL              # PostgreSQL connection string
-ANTHROPIC_OAUTH_TOKEN     # Claude API auth (fallback if no DB keys configured)
+ANTHROPIC_OAUTH_TOKEN     # Claude API auth (fallback if no tenant DB keys configured)
 NEXTAUTH_SECRET           # JWT signing secret
 NEXTAUTH_URL              # App URL (for NextAuth)
 ADMIN_PASSWORD            # Initial admin password
@@ -335,17 +409,17 @@ ADMIN_PASSWORD            # Initial admin password
 
 ## Snapshot System
 
-Instance pages and custom database tables are versioned via snapshots. The UI Agent creates snapshots automatically after making changes.
+Instance pages and custom database tables are versioned via snapshots. The UI Agent creates snapshots automatically after making changes. Snapshots are tenant-scoped.
 
-- **Model**: `Snapshot` in Prisma — stores code state (JSON), schema DDL, and references compressed data dump files
-- **Storage**: Data dumps in `/data/snapshots/` as gzip-compressed pg_dump output. Never deleted.
+- **Model**: `Snapshot` in Prisma — stores code state (JSON), tenant schema DDL, references compressed data dump files, tenantId
+- **Storage**: Data dumps in `/data/tenants/{tenantId}/snapshots/` as gzip-compressed pg_dump output. Never deleted.
 - **Deduplication**: SHA-256 hash of data dump. Code-only changes reuse the previous data file.
 - **Tree structure**: `parentId` self-reference supports branching (rollback + new change = new branch)
 - **Agent tool**: `create_snapshot(label)` — mandatory after code or schema changes
-- **Restore**: Creates auto-backup first, then restores code + drops/recreates instance schema
+- **Restore**: Creates auto-backup first, then restores code + drops/recreates tenant schema (`tenant_{id}`)
 - **UI**: Settings > Backup & Snapshots — timeline view with restore buttons
 - **API**: `GET/POST /api/settings/snapshots`, `POST /api/settings/snapshots/[id]/restore`
-- **Service**: `lib/snapshots.ts` — `createSnapshot()` and `restoreSnapshot()`
+- **Service**: `lib/snapshots.ts` — `createSnapshot(tenantId)` and `restoreSnapshot(id, tenantId)` use `getTenantSchema(tenantId)` for pg_dump/restore
 
 ---
 
@@ -353,14 +427,15 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 
 1. **Schema changes**: Use `prisma db push` (not migrations). Schema is in `prisma/schema.prisma`.
 2. **Custom tables**: Always prefix with `cstm_`, always include id/created_at/updated_at.
-3. **API routes**: Follow Next.js App Router convention. Auth check first, then logic.
-4. **Sensitive fields**: Passwords and SMTP passwords are masked in API responses via sanitizeRecord().
-5. **Tool descriptions**: Include usage examples for AI agents in tool description strings.
-6. **Instance code convention**: Must end with `var __default__ = ComponentName;`
-7. **Responsive design**: All UI must work on mobile (375px) and desktop. Use Tailwind mobile-first breakpoints.
-8. **Core protection**: Never modify Core tables (User, Event, etc.) via raw SQL. Use Prisma.
-9. **qualifyInstanceTables()**: Auto-rewrites `cstm_xxx` to `instance.cstm_xxx` in SQL.
-10. **Build check**: Always run `npm run build` before pushing. Prisma generate needs dummy DATABASE_URL locally.
+3. **API routes**: Follow Next.js App Router convention. Use `requireTenantAuth()` from `lib/api-utils.ts` for tenant routes. Check `isAuthError()` before proceeding.
+4. **Tenant scoping**: All shared-table queries MUST go through `tenantPrisma(tenantId)` — never use raw `prisma` for tenant data. The Prisma extension auto-injects `tenantId` on all CRUD operations.
+5. **Sensitive fields**: Passwords and SMTP passwords are masked in API responses via sanitizeRecord().
+6. **Tool descriptions**: Include usage examples for AI agents in tool description strings.
+7. **Instance code convention**: Must end with `var __default__ = ComponentName;`
+8. **Responsive design**: All UI must work on mobile (375px) and desktop. Use Tailwind mobile-first breakpoints.
+9. **Core protection**: Never modify Core tables (User, Event, etc.) via raw SQL. Use Prisma.
+10. **qualifyInstanceTables()**: Auto-rewrites `cstm_xxx` to `tenant_{id}.cstm_xxx` in SQL (takes `tenantSchema` param).
+11. **Build check**: Always run `npm run build` before pushing. Prisma generate needs dummy DATABASE_URL locally.
 
 ---
 
@@ -376,6 +451,10 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 
 ## Things to Watch Out For
 
+- **Always use `tenantPrisma()`**: Never query tenant-scoped models with raw `prisma` — data will leak between tenants. Use `requireTenantAuth()` which returns a scoped `db`.
+- **SUPERADMIN has no tenantId**: Platform admin routes must not call `requireTenantAuth()`. Use `requireAuth()` instead.
+- **User.email not globally unique**: The unique constraint is `@@unique([email, tenantId])`. Login uses `findFirst` not `findUnique`.
+- **Custom table SQL**: Always pass `tenantSchema` to `qualifyInstanceTables()` — forgetting this will try to access tables in the wrong schema.
 - **JSDoc comments with `*/`**: If you write `cstm_*/custom_*` inside a `/** */` comment, the `*/` will close the comment prematurely. Use `//` line comments instead.
 - **Prisma generate locally**: Needs `DATABASE_URL` env var even if the DB isn't accessible. Use a dummy URL: `DATABASE_URL="postgresql://x:x@localhost:5432/x" npx prisma generate`
 - **nodemailer types**: `createTransport()` needs `as nodemailer.TransportOptions` cast for the host config.
@@ -390,16 +469,24 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 | What | Where |
 |------|-------|
 | Prisma schema | `prisma/schema.prisma` |
-| Anthropic client (centralized) | `lib/anthropic.ts` |
+| Tenant Prisma extension | `lib/prisma-tenant.ts` |
+| API auth helpers | `lib/api-utils.ts` |
+| Anthropic client (per-tenant) | `lib/anthropic.ts` |
 | Claude AI functions | `lib/claude.ts` |
 | Active task registry | `lib/agent-tasks.ts` |
 | All agent tools | `lib/agent-tools/db-tools.ts` |
-| Auth configuration | `lib/auth.ts` |
+| Auth configuration (JWT+tenantId) | `lib/auth.ts` |
+| Middleware (zone routing) | `middleware.ts` |
 | Instance SDK hooks | `lib/instance/sdk.tsx` |
 | Instance UI components | `lib/instance/sdk-components.tsx` |
 | JSX compiler | `lib/instance/compile.ts` |
 | JSX sandbox | `lib/instance/sandbox.tsx` |
 | UI Agent prompt | `lib/instance/configurator-prompt.ts` |
+| Landing page | `app/page.tsx` |
+| Signup page | `app/(auth)/signup/page.tsx` |
+| Signup API | `app/api/auth/signup/route.ts` |
+| Superadmin panel | `app/superadmin/page.tsx` |
+| Tenant CRUD API | `app/api/superadmin/tenants/route.ts` |
 | Instance AI API (+ vision) | `app/api/instance/ai/route.ts` |
 | Main chat API | `app/api/chat/route.ts` |
 | UI Agent chat API | `app/api/ui-chat/route.ts` |
@@ -416,6 +503,7 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 | Backup & Snapshots UI | `app/(dashboard)/settings/backup/page.tsx` |
 | Main chat panel | `components/chat/chat-panel.tsx` |
 | Markdown renderer | `components/chat/markdown.tsx` |
+| Tenant schema migration | `scripts/migrate-tenant-schemas.ts` |
 | Dockerfile | `Dockerfile` |
 | Startup script | `start.sh` |
 
@@ -423,8 +511,23 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 
 ## Recent Changes (2026-03-03)
 
-### Snapshot System (NEW)
-Full versioning for Instance pages + custom database tables. UI Agent creates snapshots after every code/schema change. Users can rollback to any previous state via Settings > Backup & Snapshots. Restoring auto-backups current state first, then restores code + drops/recreates instance schema from snapshot. Data dumps are SHA-256 deduplicated — code-only changes reuse the previous data file. Snapshots never deleted. Tree structure via `parentId` supports branching (rollback + new change = new branch). Files: `lib/snapshots.ts`, `app/api/settings/snapshots/`, `prisma/schema.prisma` (Snapshot model).
+### Multi-Tenant SaaS Conversion (MAJOR)
+Converted from single-tenant "Agent Console" to multi-tenant SaaS "Agent Bizi". Key changes:
+- **Tenant model** absorbs CompanyInfo fields. All shared models gain `tenantId` column with indexes.
+- **`tenantPrisma(tenantId)`** Prisma Client Extension auto-scopes all queries (lib/prisma-tenant.ts)
+- **`requireTenantAuth()`** standard API guard returns `{session, tenantId, tenantSchema, db, role}` (lib/api-utils.ts)
+- **Per-tenant PostgreSQL schemas** (`tenant_{id}`) replace the single `instance` schema for custom tables
+- **Auth**: `tenantId` stored in JWT, propagated to session. `User.email` unique per tenant, not globally.
+- **Roles**: SUPERADMIN = platform admin (tenantId: null), ADMIN = tenant admin (full access), MANAGER = restricted user
+- **New routes**: `/` landing page, `/signup`, `/superadmin`, `/api/auth/signup`, `/api/superadmin/tenants`
+- **Middleware zones**: Public (/, /login, /signup), Platform (/superadmin/*), Tenant (everything else)
+- **AI keys**: Per-tenant key caching from `Tenant.extra.aiApiKeys` in `lib/anthropic.ts`
+- **File storage**: Per-tenant dirs at `/data/tenants/{tenantId}/snapshots/`
+- **Migration**: `seed.js` migrates legacy data to default tenant, `start.sh` runs `migrate-tenant-schemas.ts`
+- **`qualifyInstanceTables()`** now takes `tenantSchema` param, rewrites to `tenant_{id}.cstm_*`
+
+### Snapshot System
+Full versioning for Instance pages + custom database tables. UI Agent creates snapshots after every code/schema change. Users can rollback to any previous state via Settings > Backup & Snapshots. Restoring auto-backups current state first, then restores code + drops/recreates tenant schema from snapshot. Data dumps are SHA-256 deduplicated — code-only changes reuse the previous data file. Snapshots never deleted. Tree structure via `parentId` supports branching (rollback + new change = new branch). Files: `lib/snapshots.ts`, `app/api/settings/snapshots/`, `prisma/schema.prisma` (Snapshot model).
 
 ### UI Agent Page-Editor Hardening
 **Problem:** UI Agent was creating NEW pages instead of editing the current one when opened in page-editor context.
