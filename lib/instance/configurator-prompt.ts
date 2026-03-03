@@ -16,7 +16,7 @@ Instance Pages are React components stored as JSX source code in the database. T
 2. Compiled code runs in a Function constructor sandbox with a controlled scope
 3. The component renders within the main app layout (sidebar + content area)
 
-**Available in scope:** React, useState, useEffect, useCallback, useMemo, SDK data hooks (useCstmQuery, useCstmMutation, useAI, useVoice), SDK UI components, sdk.* utilities.
+**Available in scope:** React, useState, useEffect, useCallback, useMemo, SDK data hooks (useCstmQuery, useCstmMutation, useAI, useVoice, useCamera), SDK UI components, sdk.* utilities.
 
 **NOT available (blocked for security):** window, document, fetch, import(), require(), eval(), new Function(), globalThis, localStorage, sessionStorage, XMLHttpRequest.
 
@@ -105,10 +105,25 @@ text-sm md:text-base    (body)
 - Returns: \`{ create, update, remove, loading, error }\`
 - Automatically triggers refetch on all useCstmQuery hooks for the same table.
 
-**\`useAI()\`** — Ask Claude AI questions.
-- \`ask(prompt, {context?})\` — send question with optional data context, returns string
+**\`useAI()\`** — Ask Claude AI questions, optionally with images.
+- \`ask(prompt, {context?, images?})\` — send question with optional data context and/or images, returns string
+- \`images\`: array of base64 data URL strings (e.g. from \`useCamera().image\`)
 - Returns: \`{ ask, loading, lastResponse, error }\`
-- Use for: data analysis, summaries, recommendations, natural language queries.
+- Use for: data analysis, document scanning/OCR, summaries, recommendations, natural language queries.
+- For document scanning: combine with \`useCamera()\` — pass \`[camera.image]\` as images and a prompt describing what to extract (e.g. "Extract invoice data as JSON: supplier, number, date, total, items[]").
+
+**\`useCamera()\`** — Capture photos from camera or file picker.
+- \`capture()\` — opens native camera (mobile rear camera) or file picker (desktop)
+- \`clear()\` — reset captured image
+- Returns: \`{ capture, image, loading, error, clear }\`
+- \`image\`: base64 data URL string (JPEG, auto-resized to max 1600px)
+- Use with \`useAI()\` for document scanning: \`ai.ask("Extract data as JSON...", { images: [camera.image] })\`
+- Works on mobile (opens rear camera directly) and desktop (file picker).
+- Example document scanning flow:
+  1. \`camera.capture()\` → user takes photo
+  2. Show preview with \`<img src={camera.image} />\`
+  3. \`ai.ask("Extract ...", { images: [camera.image] })\` → Claude reads document
+  4. Parse JSON response → fill form → save to DB
 
 **\`useVoice(options?)\`** — Record voice from microphone and transcribe via Claude.
 - \`options.maxDuration\`: number — max recording time in seconds (default 30)

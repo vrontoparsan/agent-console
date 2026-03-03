@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { compileJSX } from "./compile";
-import { useCstmQuery, useCstmMutation, useAI, useVoice, sdk } from "./sdk";
+import { useCstmQuery, useCstmMutation, useAI, useVoice, useCamera, sdk } from "./sdk";
 import * as SdkComponents from "./sdk-components";
 
 // ─── Error Boundary ──────────────────────────────────────────
@@ -76,6 +76,7 @@ function createSandboxedComponent(
     useCstmMutation,
     useAI,
     useVoice,
+    useCamera,
     sdk,
 
     // SDK UI components

@@ -31,10 +31,23 @@ type CstmMutationResult = {
 };
 
 type AIResult = {
-  ask: (prompt: string, options?: { context?: unknown }) => Promise<string>;
+  ask: (prompt: string, options?: { context?: unknown; images?: string[] }) => Promise<string>;
   loading: boolean;
   error: string | null;
   lastResponse: string | null;
+};
+
+type CameraResult = {
+  /** Open native camera (mobile) or file picker (desktop) */
+  capture: () => void;
+  /** Base64 data URL of captured image (image/jpeg) */
+  image: string | null;
+  /** Processing the captured image */
+  loading: boolean;
+  /** Error message */
+  error: string | null;
+  /** Clear captured image */
+  clear: () => void;
 };
 
 // ─── useCstmQuery ────────────────────────────────────────────
@@ -207,14 +220,20 @@ export function useAI(): AIResult {
   const [lastResponse, setLastResponse] = useState<string | null>(null);
 
   const ask = useCallback(
-    async (prompt: string, options?: { context?: unknown }) => {
+    async (prompt: string, options?: { context?: unknown; images?: string[] }) => {
       setLoading(true);
       setError(null);
       try {
+        // Strip data URL prefix from images for API
+        const images = options?.images?.map((img) => {
+          const match = img.match(/^data:[^;]+;base64,(.+)$/);
+          return match ? match[1] : img;
+        });
+
         const res = await globalThis.fetch("/api/instance/ai", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, context: options?.context }),
+          body: JSON.stringify({ prompt, context: options?.context, images }),
         });
         if (!res.ok) {
           const json = await res.json().catch(() => null);
@@ -357,6 +376,96 @@ export function useVoice(options?: { maxDuration?: number; prompt?: string }): V
   }, []);
 
   return { start, stop, recording, transcribing, text, error };
+}
+
+// ─── useCamera ──────────────────────────────────────────────
+
+const MAX_IMAGE_SIZE = 1600; // Max dimension in pixels
+const JPEG_QUALITY = 0.85;
+
+function resizeImage(dataUrl: string, maxSize: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = Math.round((height * maxSize) / width);
+          width = maxSize;
+        } else {
+          width = Math.round((width * maxSize) / height);
+          height = maxSize;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { reject(new Error("Canvas not supported")); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", JPEG_QUALITY));
+    };
+    img.onerror = () => reject(new Error("Failed to load image"));
+    img.src = dataUrl;
+  });
+}
+
+export function useCamera(): CameraResult {
+  const [image, setImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Create hidden file input on mount
+  useEffect(() => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.setAttribute("capture", "environment");
+    input.style.display = "none";
+    document.body.appendChild(input);
+    inputRef.current = input;
+
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setLoading(true);
+      setError(null);
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error("Failed to read file"));
+          reader.readAsDataURL(file);
+        });
+        const resized = await resizeImage(dataUrl, MAX_IMAGE_SIZE);
+        setImage(resized);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to process image");
+      } finally {
+        setLoading(false);
+        input.value = "";
+      }
+    });
+
+    return () => {
+      document.body.removeChild(input);
+      inputRef.current = null;
+    };
+  }, []);
+
+  const capture = useCallback(() => {
+    if (inputRef.current) {
+      inputRef.current.click();
+    }
+  }, []);
+
+  const clear = useCallback(() => {
+    setImage(null);
+    setError(null);
+  }, []);
+
+  return { capture, image, loading, error, clear };
 }
 
 // ─── SDK Utilities ───────────────────────────────────────────
