@@ -51,14 +51,15 @@ async function loadKeys(): Promise<ApiKeyEntry[]> {
 }
 
 function createClient(token: string): Anthropic {
-  const isApiKey = token.startsWith("sk-ant-");
-  if (isApiKey) {
-    return new Anthropic({ apiKey: token });
+  // OAuth tokens: sk-ant-oat01-... / API keys: sk-ant-api03-...
+  const isOAuth = token.startsWith("sk-ant-oat");
+  if (isOAuth) {
+    return new Anthropic({
+      authToken: token,
+      defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+    });
   }
-  return new Anthropic({
-    authToken: token,
-    defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
-  });
+  return new Anthropic({ apiKey: token });
 }
 
 async function ensureKeys(): Promise<ApiKeyEntry[]> {
