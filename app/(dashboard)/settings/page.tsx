@@ -24,9 +24,9 @@ const settingsItems = [
   {
     href: "/settings/contexts",
     label: "Agent Contexts",
-    description: "OpenClaw .md contexts: AGENTS, SOUL, TOOLS, IDENTITY, USER, HEARTBEAT, MEMORY",
+    description: "Permanent AI contexts for the agent",
     icon: FileText,
-    roles: ["SUPERADMIN"],
+    roles: ["ADMIN"],
   },
   {
     href: "/settings/events",
@@ -68,7 +68,7 @@ const settingsItems = [
     label: "AI APIs",
     description: "API keys and tokens with automatic failover",
     icon: Key,
-    roles: ["SUPERADMIN"],
+    roles: ["ADMIN"],
   },
   {
     href: "/settings/backup",

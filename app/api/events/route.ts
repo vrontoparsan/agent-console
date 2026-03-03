@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { generateActions } from "@/lib/claude";
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const body = await req.json();
   const { title, summary, rawContent, source, type, priority, categoryId } = body;
@@ -14,7 +13,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "title and type required" }, { status: 400 });
   }
 
-  const event = await prisma.event.create({
+  const event = await ctx.db.event.create({
     data: {
       title,
       summary: summary || null,
@@ -34,10 +33,11 @@ export async function POST(req: NextRequest) {
       const actions = await generateActions(
         title,
         rawContent || summary || "",
-        categoryContext
+        categoryContext,
+        ctx.tenantId
       );
       if (Array.isArray(actions)) {
-        await prisma.eventAction.createMany({
+        await ctx.db.eventAction.createMany({
           data: actions.map(
             (a: { title: string; description?: string }) => ({
               eventId: event.id,

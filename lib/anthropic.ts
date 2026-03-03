@@ -6,37 +6,50 @@ type ApiKeyEntry = {
   token: string;
 };
 
-// ─── Key cache (survives hot-reloads via globalThis) ────────────
+// ─── Per-tenant key cache (survives hot-reloads via globalThis) ──
 
-const g = globalThis as unknown as {
-  _anthropicKeys: ApiKeyEntry[] | null;
-  _anthropicKeyIndex: number;
-  _anthropicClient: Anthropic | null;
-  _anthropicKeysLoadedAt: number;
+type TenantCache = {
+  keys: ApiKeyEntry[];
+  keyIndex: number;
+  client: Anthropic | null;
+  loadedAt: number;
 };
 
-if (!g._anthropicKeys) {
-  g._anthropicKeys = null;
-  g._anthropicKeyIndex = 0;
-  g._anthropicClient = null;
-  g._anthropicKeysLoadedAt = 0;
+const g = globalThis as unknown as {
+  _anthropicTenantCache: Map<string, TenantCache>;
+};
+
+if (!g._anthropicTenantCache) {
+  g._anthropicTenantCache = new Map();
 }
 
 const CACHE_TTL = 60_000; // reload keys from DB every 60s
 
 // ─── Load keys from DB with env fallback ────────────────────
 
-async function loadKeys(): Promise<ApiKeyEntry[]> {
+async function loadKeys(tenantId?: string): Promise<ApiKeyEntry[]> {
   try {
-    const info = await prisma.companyInfo.findUnique({
-      where: { id: "default" },
-      select: { extra: true },
-    });
-    const extra = info?.extra as Record<string, unknown> | null;
-    const keys = (extra?.aiApiKeys as ApiKeyEntry[]) || [];
-    // Filter out empty tokens
-    const valid = keys.filter((k) => k.token?.trim());
-    if (valid.length > 0) return valid;
+    if (tenantId) {
+      // Load from Tenant.extra.aiApiKeys
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { extra: true },
+      });
+      const extra = tenant?.extra as Record<string, unknown> | null;
+      const keys = (extra?.aiApiKeys as ApiKeyEntry[]) || [];
+      const valid = keys.filter((k) => k.token?.trim());
+      if (valid.length > 0) return valid;
+    } else {
+      // Legacy: try CompanyInfo (for backward compat during migration)
+      const info = await prisma.companyInfo.findUnique({
+        where: { id: "default" },
+        select: { extra: true },
+      });
+      const extra = info?.extra as Record<string, unknown> | null;
+      const keys = (extra?.aiApiKeys as ApiKeyEntry[]) || [];
+      const valid = keys.filter((k) => k.token?.trim());
+      if (valid.length > 0) return valid;
+    }
   } catch {
     /* DB not available, use env */
   }
@@ -62,46 +75,58 @@ function createClient(token: string): Anthropic {
   return new Anthropic({ apiKey: token });
 }
 
-async function ensureKeys(): Promise<ApiKeyEntry[]> {
-  const now = Date.now();
-  if (!g._anthropicKeys || now - g._anthropicKeysLoadedAt > CACHE_TTL) {
-    g._anthropicKeys = await loadKeys();
-    g._anthropicKeysLoadedAt = now;
-    // Reset client if keys changed
-    g._anthropicClient = null;
-    g._anthropicKeyIndex = 0;
+function getTenantCache(tenantId: string): TenantCache {
+  let cache = g._anthropicTenantCache.get(tenantId);
+  if (!cache) {
+    cache = { keys: [], keyIndex: 0, client: null, loadedAt: 0 };
+    g._anthropicTenantCache.set(tenantId, cache);
   }
-  return g._anthropicKeys;
+  return cache;
+}
+
+async function ensureKeys(tenantId?: string): Promise<{ keys: ApiKeyEntry[]; cache: TenantCache }> {
+  const cacheKey = tenantId || "__default__";
+  const cache = getTenantCache(cacheKey);
+  const now = Date.now();
+
+  if (cache.keys.length === 0 || now - cache.loadedAt > CACHE_TTL) {
+    cache.keys = await loadKeys(tenantId);
+    cache.loadedAt = now;
+    cache.client = null;
+    cache.keyIndex = 0;
+  }
+  return { keys: cache.keys, cache };
 }
 
 // ─── Public API ─────────────────────────────────────────────
 
 /**
- * Returns the current Anthropic client.
- * Loads keys from DB on first call and every 60s.
+ * Returns the Anthropic client for a tenant.
+ * Loads keys from Tenant.extra on first call and every 60s.
  */
-export async function getAnthropicClient(): Promise<Anthropic> {
-  const keys = await ensureKeys();
+export async function getAnthropicClient(tenantId?: string): Promise<Anthropic> {
+  const { keys, cache } = await ensureKeys(tenantId);
   if (keys.length === 0) {
     throw new Error("No AI API keys configured. Go to Settings > AI APIs.");
   }
 
-  if (!g._anthropicClient) {
-    g._anthropicClient = createClient(keys[g._anthropicKeyIndex].token);
+  if (!cache.client) {
+    cache.client = createClient(keys[cache.keyIndex].token);
   }
-  return g._anthropicClient;
+  return cache.client;
 }
 
 /**
  * Call when an auth error occurs. Rotates to the next key.
  * Returns true if there's a next key to try, false if all exhausted.
  */
-export function failoverToNextKey(): boolean {
-  const keys = g._anthropicKeys;
-  if (!keys || keys.length <= 1) return false;
+export function failoverToNextKey(tenantId?: string): boolean {
+  const cacheKey = tenantId || "__default__";
+  const cache = g._anthropicTenantCache.get(cacheKey);
+  if (!cache || cache.keys.length <= 1) return false;
 
-  g._anthropicKeyIndex = (g._anthropicKeyIndex + 1) % keys.length;
-  g._anthropicClient = null;
+  cache.keyIndex = (cache.keyIndex + 1) % cache.keys.length;
+  cache.client = null;
   return true;
 }
 
@@ -109,9 +134,10 @@ export function failoverToNextKey(): boolean {
  * Force reload keys from DB on next getAnthropicClient() call.
  * Call after updating keys in settings.
  */
-export function invalidateKeyCache(): void {
-  g._anthropicKeys = null;
-  g._anthropicClient = null;
-  g._anthropicKeyIndex = 0;
-  g._anthropicKeysLoadedAt = 0;
+export function invalidateKeyCache(tenantId?: string): void {
+  if (tenantId) {
+    g._anthropicTenantCache.delete(tenantId);
+  } else {
+    g._anthropicTenantCache.clear();
+  }
 }

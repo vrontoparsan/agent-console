@@ -1,6 +1,6 @@
-import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { notFound } from "next/navigation";
+import { tenantPrisma } from "@/lib/prisma-tenant";
+import { notFound, redirect } from "next/navigation";
 import { CustomPageClient } from "./client";
 
 export default async function CustomPageRoute({
@@ -9,11 +9,11 @@ export default async function CustomPageRoute({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const session = await auth();
+  if (!session?.user?.tenantId) redirect("/login");
 
-  const [page, session] = await Promise.all([
-    prisma.customPage.findUnique({ where: { slug } }),
-    auth(),
-  ]);
+  const db = tenantPrisma(session.user.tenantId);
+  const page = await db.customPage.findFirst({ where: { slug } });
 
   if (!page) notFound();
 

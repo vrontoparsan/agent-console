@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { getAnthropicClient } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
@@ -10,10 +10,8 @@ export const maxDuration = 60;
  * Accepts audio via FormData, transcribes with Claude, returns text.
  */
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const formData = await req.formData();
   const audioFile = formData.get("audio") as File | null;
@@ -59,7 +57,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const anthropic = await getAnthropicClient();
+    const anthropic = await getAnthropicClient(ctx.tenantId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await (anthropic.messages.create as any)({
       model: "claude-sonnet-4-6",

@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const snapshot = await createSnapshot(label.trim());
+    const snapshot = await createSnapshot(label.trim(), ctx.tenantId);
     return NextResponse.json(snapshot, { status: 201 });
   } catch (err) {
     return NextResponse.json(

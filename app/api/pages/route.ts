@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json([], { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
-  const userRole = session.user.role;
+  const userRole = ctx.role;
   const showAll = req.nextUrl.searchParams.get("all") === "1";
 
-  // SUPERADMIN and ADMIN
-  if (["SUPERADMIN", "ADMIN"].includes(userRole)) {
-    const pages = await prisma.customPage.findMany({
+  // ADMIN
+  if (["ADMIN"].includes(userRole)) {
+    const pages = await ctx.db.customPage.findMany({
       where: showAll ? {} : { published: true },
       select: { id: true, slug: true, title: true, icon: true, order: true, published: true, code: true, categoryId: true, category: { select: { id: true, name: true } } },
       orderBy: { order: "asc" },
@@ -20,8 +19,8 @@ export async function GET(req: NextRequest) {
   }
 
   // MANAGER: only pages they have access to
-  const accessList = await prisma.userPageAccess.findMany({
-    where: { userId: session.user.id },
+  const accessList = await ctx.db.userPageAccess.findMany({
+    where: { userId: ctx.session.user.id },
     select: { pageId: true },
   });
   const pageIds = accessList.map((a) => a.pageId);
@@ -30,7 +29,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json([]);
   }
 
-  const pages = await prisma.customPage.findMany({
+  const pages = await ctx.db.customPage.findMany({
     where: showAll
       ? { id: { in: pageIds } }
       : { published: true, id: { in: pageIds } },
@@ -43,9 +42,9 @@ export async function GET(req: NextRequest) {
 
 // POST: Create an empty section
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+  if (!["ADMIN"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -62,13 +61,13 @@ export async function POST(req: NextRequest) {
     .replace(/^-|-$/g, "");
 
   // Check for duplicate slug
-  const existing = await prisma.customPage.findUnique({ where: { slug } });
+  const existing = await ctx.db.customPage.findFirst({ where: { slug } });
   if (existing) {
     return NextResponse.json({ error: "Section with this slug already exists" }, { status: 409 });
   }
 
-  const maxOrder = await prisma.customPage.aggregate({ _max: { order: true } });
-  const page = await prisma.customPage.create({
+  const maxOrder = await ctx.db.customPage.aggregate({ _max: { order: true } });
+  const page = await ctx.db.customPage.create({
     data: {
       title: title.trim(),
       slug,
@@ -84,9 +83,9 @@ export async function POST(req: NextRequest) {
 
 // DELETE: Remove a section and its messages
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+  if (!["ADMIN"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -96,20 +95,20 @@ export async function DELETE(req: NextRequest) {
   }
 
   // Delete related messages first
-  await prisma.message.deleteMany({ where: { customPageId: id } });
+  await ctx.db.message.deleteMany({ where: { customPageId: id } });
   // Delete page access entries
-  await prisma.userPageAccess.deleteMany({ where: { pageId: id } });
+  await ctx.db.userPageAccess.deleteMany({ where: { pageId: id } });
   // Delete the page
-  await prisma.customPage.delete({ where: { id } });
+  await ctx.db.customPage.delete({ where: { id } });
 
   return NextResponse.json({ ok: true });
 }
 
 // PUT: Update a section's title
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+  if (!["ADMIN"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -118,7 +117,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "ID and title are required" }, { status: 400 });
   }
 
-  const page = await prisma.customPage.update({
+  const page = await ctx.db.customPage.update({
     where: { id },
     data: { title: title.trim() },
   });
@@ -128,17 +127,17 @@ export async function PUT(req: NextRequest) {
 
 // PATCH: Batch reorder sections (update order and categoryId)
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+  if (!["ADMIN"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const items: { id: string; order: number; categoryId: string | null }[] = await req.json();
 
-  await prisma.$transaction(
+  await ctx.db.$transaction(
     items.map((item) =>
-      prisma.customPage.update({
+      ctx.db.customPage.update({
         where: { id: item.id },
         data: { order: item.order, categoryId: item.categoryId },
       })

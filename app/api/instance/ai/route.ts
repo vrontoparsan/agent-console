@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicClient } from "@/lib/anthropic";
 
@@ -8,10 +8,8 @@ const MAX_IMAGES = 3;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB per image
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const { prompt, context, images } = await req.json();
   if (!prompt || typeof prompt !== "string") {
@@ -57,7 +55,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const anthropic = await getAnthropicClient();
+    const anthropic = await getAnthropicClient(ctx.tenantId);
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 12288,

@@ -1,21 +1,21 @@
 #!/bin/sh
-echo "=== Agent Console Starting ==="
+echo "=== Agent Bizi Starting ==="
 
-# Create backup and uploads directories
-mkdir -p /data/backups /data/uploads /data/snapshots
-echo "Data directories ready: /data/backups, /data/uploads"
+# Create data directories
+mkdir -p /data/tenants /data/uploads
+echo "Data directories ready"
 
 # Run Prisma migrations
 echo "Running database push..."
 npx prisma db push --skip-generate 2>&1 || echo "DB push failed (may already be up to date)"
 
-# Seed database (idempotent - skips if already seeded)
+# Seed database (idempotent — creates SUPERADMIN, migrates legacy data)
 echo "Running seed..."
 node seed.js 2>&1 || echo "Seed skipped or failed"
 
-# Run instance schema migration (idempotent - creates instance schema, moves cstm_ tables)
-echo "Running instance schema migration..."
-npx tsx scripts/migrate-instance-schema.ts 2>&1 || echo "Instance schema migration failed"
+# Run tenant schema migration (idempotent — creates per-tenant schemas, renames instance → tenant_*)
+echo "Running tenant schema migration..."
+npx tsx scripts/migrate-tenant-schemas.ts 2>&1 || echo "Tenant schema migration failed"
 
 # Start Next.js
 echo "Starting Next.js server..."

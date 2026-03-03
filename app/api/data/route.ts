@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 
 const allowedTables: Record<string, boolean> = {
@@ -19,19 +19,22 @@ const allowedTables: Record<string, boolean> = {
 };
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.user.role !== "SUPERADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+  if (ctx.role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const tenantSchema = ctx.tenantSchema;
 
   // List instance tables
   if (req.nextUrl.searchParams.get("list") === "instance") {
     try {
-      const rows = await prisma.$queryRaw<{ table_name: string }[]>`
-        SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'instance'
+      const rows = await prisma.$queryRawUnsafe<{ table_name: string }[]>(
+        `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = $1
         AND (table_name LIKE 'cstm_%' OR table_name LIKE 'custom_%')
-        ORDER BY table_name
-      `;
+        ORDER BY table_name`,
+        tenantSchema
+      );
       return NextResponse.json(rows.map((r) => r.table_name));
     } catch {
       return NextResponse.json([]);
@@ -49,12 +52,12 @@ export async function GET(req: NextRequest) {
   if (table.startsWith("cstm_") || table.startsWith("custom_")) {
     try {
       const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `SELECT count(*)::bigint as count FROM instance."${table}"`
+        `SELECT count(*)::bigint as count FROM "${tenantSchema}"."${table}"`
       );
       const total = Number(countResult[0]?.count || 0);
 
       const data = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-        `SELECT * FROM instance."${table}" ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
+        `SELECT * FROM "${tenantSchema}"."${table}" ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`
       );
 
       const columns = data.length > 0 ? Object.keys(data[0]) : [];
@@ -73,7 +76,7 @@ export async function GET(req: NextRequest) {
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const model = (prisma as any)[
+    const model = (ctx.db as any)[
       table.charAt(0).toLowerCase() + table.slice(1)
     ] as {
       findMany: (args: Record<string, unknown>) => Promise<Record<string, unknown>[]>;
@@ -104,7 +107,7 @@ export async function GET(req: NextRequest) {
     // Some tables don't have createdAt
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const model = (prisma as any)[
+      const model = (ctx.db as any)[
         table.charAt(0).toLowerCase() + table.slice(1)
       ] as {
         findMany: (args: Record<string, unknown>) => Promise<Record<string, unknown>[]>;

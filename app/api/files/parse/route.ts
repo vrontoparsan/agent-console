@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 
 export const runtime = "nodejs";
 
@@ -89,10 +89,8 @@ async function parseFile(buffer: Buffer, filename: string): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const formData = await req.formData();
   const results: { filename: string; content: string; error?: string }[] = [];

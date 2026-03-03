@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tenantPrisma, getTenantSchema } from "@/lib/prisma-tenant";
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
@@ -7,7 +8,9 @@ import * as crypto from "crypto";
 
 const execAsync = promisify(exec);
 
-const SNAPSHOT_DIR = "/data/snapshots";
+function getSnapshotDir(tenantId: string): string {
+  return `/data/tenants/${tenantId}/snapshots`;
+}
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -34,8 +37,8 @@ type SnapshotState = {
 
 // ─── Helpers ────────────────────────────────────────────────
 
-function ensureDir() {
-  fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
+function ensureDir(tenantId: string) {
+  fs.mkdirSync(getSnapshotDir(tenantId), { recursive: true });
 }
 
 async function hashFile(filepath: string): Promise<string> {
@@ -48,34 +51,33 @@ async function hashFile(filepath: string): Promise<string> {
   });
 }
 
-async function getInstanceSchemaDDL(): Promise<string> {
+async function getTenantSchemaDDL(tenantSchema: string): Promise<string> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL not set");
 
   try {
     const { stdout } = await execAsync(
-      `pg_dump "${dbUrl}" --schema-only --schema=instance --no-owner --no-privileges 2>/dev/null`,
+      `pg_dump "${dbUrl}" --schema-only --schema="${tenantSchema}" --no-owner --no-privileges 2>/dev/null`,
       { timeout: 30_000 }
     );
     return stdout || "";
   } catch {
-    // Instance schema may not exist yet or have no tables
+    // Tenant schema may not exist yet or have no tables
     return "";
   }
 }
 
 /**
- * Dumps instance schema data to gzip file.
+ * Dumps tenant schema data to gzip file.
  * Returns true if dump contains meaningful data, false if empty/failed.
  */
-async function dumpInstanceData(outputPath: string): Promise<boolean> {
+async function dumpTenantData(outputPath: string, tenantSchema: string): Promise<boolean> {
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL not set");
 
   try {
-    // Use subshell to capture pg_dump exit code through pipe
     await execAsync(
-      `pg_dump "${dbUrl}" --data-only --schema=instance --no-owner --no-privileges 2>/dev/null | gzip > "${outputPath}"`,
+      `pg_dump "${dbUrl}" --data-only --schema="${tenantSchema}" --no-owner --no-privileges 2>/dev/null | gzip > "${outputPath}"`,
       { timeout: 120_000 }
     );
 
@@ -83,14 +85,15 @@ async function dumpInstanceData(outputPath: string): Promise<boolean> {
     // Empty gzip (no data) is ~20 bytes; real data is > 50 bytes
     return stat.size > 50;
   } catch (err) {
-    console.error("dumpInstanceData error:", err);
+    console.error("dumpTenantData error:", err);
     return false;
   }
 }
 
-async function captureState(): Promise<SnapshotState> {
+async function captureState(tenantId: string): Promise<SnapshotState> {
+  const db = tenantPrisma(tenantId);
   const [pages, categories] = await Promise.all([
-    prisma.customPage.findMany({
+    db.customPage.findMany({
       select: {
         slug: true,
         title: true,
@@ -102,7 +105,7 @@ async function captureState(): Promise<SnapshotState> {
         categoryId: true,
       },
     }),
-    prisma.sectionCategory.findMany({
+    db.sectionCategory.findMany({
       select: { id: true, name: true, order: true },
       orderBy: { order: "asc" },
     }),
@@ -128,31 +131,35 @@ async function captureState(): Promise<SnapshotState> {
 
 export async function createSnapshot(
   label: string,
+  tenantId: string,
   customPageId?: string
 ): Promise<{ id: string; label: string; dataSize: number; deduplicated: boolean }> {
-  ensureDir();
+  const snapshotDir = getSnapshotDir(tenantId);
+  const tenantSchema = getTenantSchema(tenantId);
+  const db = tenantPrisma(tenantId);
+  ensureDir(tenantId);
 
   // 1. Capture full state (all pages + categories)
-  const codeState = await captureState();
+  const codeState = await captureState(tenantId);
 
   // 2. Capture schema DDL
-  const schemaDdl = await getInstanceSchemaDDL();
+  const schemaDdl = await getTenantSchemaDDL(tenantSchema);
 
-  // 3. Dump instance data
-  const tempPath = path.join(SNAPSHOT_DIR, `_temp_${Date.now()}.sql.gz`);
+  // 3. Dump tenant data
+  const tempPath = path.join(snapshotDir, `_temp_${Date.now()}.sql.gz`);
   let dataFile: string | null = null;
   let dataHash: string | null = null;
   let dataSize = 0;
   let deduplicated = false;
 
-  const hasData = await dumpInstanceData(tempPath);
+  const hasData = await dumpTenantData(tempPath, tenantSchema);
 
   if (hasData) {
     dataHash = await hashFile(tempPath);
     dataSize = fs.statSync(tempPath).size;
 
     // Check for dedup — does an existing snapshot have the same data?
-    const existing = await prisma.snapshot.findFirst({
+    const existing = await db.snapshot.findFirst({
       where: { dataHash },
       select: { dataFile: true },
     });
@@ -166,18 +173,18 @@ export async function createSnapshot(
       dataFile = tempPath; // temporary, renamed below
     }
   } else {
-    // Empty dump or no instance tables — clean up
+    // Empty dump or no tenant tables — clean up
     if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
   }
 
   // 4. Find current snapshot for parentId
-  const current = await prisma.snapshot.findFirst({
+  const current = await db.snapshot.findFirst({
     where: { isCurrent: true },
     select: { id: true },
   });
 
   // 5. Create snapshot record
-  const snapshot = await prisma.snapshot.create({
+  const snapshot = await db.snapshot.create({
     data: {
       label,
       parentId: current?.id || null,
@@ -193,7 +200,7 @@ export async function createSnapshot(
 
   // Rename temp file to final path using snapshot ID
   if (dataFile && !deduplicated) {
-    const finalPath = path.join(SNAPSHOT_DIR, `${snapshot.id}.sql.gz`);
+    const finalPath = path.join(snapshotDir, `${snapshot.id}.sql.gz`);
     fs.renameSync(dataFile, finalPath);
     dataFile = finalPath;
   }
@@ -220,13 +227,18 @@ export async function createSnapshot(
 // ─── Restore Snapshot ───────────────────────────────────────
 
 export async function restoreSnapshot(
-  snapshotId: string
+  snapshotId: string,
+  tenantId: string
 ): Promise<{ ok: true; autoBackupId: string }> {
+  const tenantSchema = getTenantSchema(tenantId);
+  const snapshotDir = getSnapshotDir(tenantId);
+  const db = tenantPrisma(tenantId);
+
   // 1. Safety: create auto-backup of current state
-  const autoBackup = await createSnapshot("Auto-backup before restore");
+  const autoBackup = await createSnapshot("Auto-backup before restore", tenantId);
 
   // 2. Load target snapshot
-  const target = await prisma.snapshot.findUnique({
+  const target = await db.snapshot.findFirst({
     where: { id: snapshotId },
   });
   if (!target) throw new Error("Snapshot not found");
@@ -238,13 +250,12 @@ export async function restoreSnapshot(
   const categories = state.categories || [];
 
   // 3. Restore categories first (pages reference them via categoryId)
-  // Delete categories not in snapshot, upsert those that are
   const snapshotCategoryIds = categories.map((c) => c.id);
-  await prisma.sectionCategory.deleteMany({
+  await db.sectionCategory.deleteMany({
     where: { id: { notIn: snapshotCategoryIds } },
   });
   for (const cat of categories) {
-    await prisma.sectionCategory.upsert({
+    await db.sectionCategory.upsert({
       where: { id: cat.id },
       update: { name: cat.name, order: cat.order },
       create: { id: cat.id, name: cat.name, order: cat.order },
@@ -252,15 +263,12 @@ export async function restoreSnapshot(
   }
 
   // 4. Restore page state
-  const snapshotSlugs = Object.keys(pages);
-
-  // Get current pages
-  const currentPages = await prisma.customPage.findMany({
+  // Get current pages for this tenant
+  const currentPages = await db.customPage.findMany({
     select: { slug: true },
   });
   const currentSlugs = currentPages.map((p) => p.slug);
 
-  // Update existing pages that are in snapshot
   for (const [slug, pageState] of Object.entries(pages)) {
     const data = {
       code: pageState.code,
@@ -273,29 +281,28 @@ export async function restoreSnapshot(
     };
 
     if (currentSlugs.includes(slug)) {
-      await prisma.customPage.update({ where: { slug }, data });
+      // Use findFirst since slug is not globally unique
+      const page = await db.customPage.findFirst({ where: { slug }, select: { id: true } });
+      if (page) {
+        await db.customPage.update({ where: { id: page.id }, data });
+      }
     } else {
-      // Page existed in snapshot but was deleted — recreate it
-      await prisma.customPage.create({ data: { slug, ...data } });
+      await db.customPage.create({ data: { slug, ...data } });
     }
   }
 
-  // Pages that exist now but weren't in the snapshot — leave them
-  // (they were created after the snapshot, user may want to keep them)
-  // If user wants them gone, they can delete manually
-
-  // 5. Restore instance schema + data
+  // 5. Restore tenant schema + data
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL not set");
 
   try {
-    // Drop and recreate instance schema
-    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS instance CASCADE`);
-    await prisma.$executeRawUnsafe(`CREATE SCHEMA instance`);
+    // Drop and recreate tenant schema
+    await prisma.$executeRawUnsafe(`DROP SCHEMA IF EXISTS "${tenantSchema}" CASCADE`);
+    await prisma.$executeRawUnsafe(`CREATE SCHEMA "${tenantSchema}"`);
 
     // Restore DDL (table structure) via temp file
     if (target.schemaDdl && target.schemaDdl.trim()) {
-      const ddlPath = path.join(SNAPSHOT_DIR, `_restore_ddl_${Date.now()}.sql`);
+      const ddlPath = path.join(snapshotDir, `_restore_ddl_${Date.now()}.sql`);
       fs.writeFileSync(ddlPath, target.schemaDdl, "utf-8");
       try {
         await execAsync(`psql "${dbUrl}" < "${ddlPath}"`, { timeout: 30_000 });
@@ -318,8 +325,8 @@ export async function restoreSnapshot(
     );
   }
 
-  // 6. Mark target as current
-  await prisma.snapshot.updateMany({
+  // 6. Mark target as current (within this tenant's snapshots)
+  await db.snapshot.updateMany({
     where: { isCurrent: true },
     data: { isCurrent: false },
   });

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import * as nodemailer from "nodemailer";
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const { to, subject, body } = await req.json();
   if (!to || !subject || !body) {
@@ -18,7 +15,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Find an email account with SMTP configured
-  const account = await prisma.emailAccount.findFirst({
+  const account = await ctx.db.emailAccount.findFirst({
     where: { smtpHost: { not: "" } },
   });
 

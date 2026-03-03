@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { executeEmailReply } from "@/lib/email/email-reply";
 
 const EMAIL_ACTION_KEYWORDS = [
@@ -17,8 +16,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ eventId: string; actionId: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const { eventId, actionId } = await params;
   const body = await req.json();
@@ -30,7 +29,7 @@ export async function PATCH(
 
   // For APPROVED email actions, try to execute the reply
   if (status === "APPROVED") {
-    const action = await prisma.eventAction.findUnique({
+    const action = await ctx.db.eventAction.findUnique({
       where: { id: actionId },
       include: {
         event: {
@@ -52,13 +51,13 @@ export async function PATCH(
       });
 
       // Return immediately — action is now IN_PROGRESS
-      const updated = await prisma.eventAction.findUnique({ where: { id: actionId } });
+      const updated = await ctx.db.eventAction.findUnique({ where: { id: actionId } });
       return NextResponse.json(updated);
     }
   }
 
   // Default: just update status
-  const action = await prisma.eventAction.update({
+  const action = await ctx.db.eventAction.update({
     where: { id: actionId },
     data: {
       status,

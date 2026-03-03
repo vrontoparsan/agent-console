@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { agenticChat } from "@/lib/claude";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import {
@@ -23,10 +22,8 @@ export const maxDuration = 120;
 // ─── GET: Load thread messages ───────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const customPageId = req.nextUrl.searchParams.get("customPageId");
   const threadId = req.nextUrl.searchParams.get("threadId");
@@ -35,7 +32,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ messages: [] });
   }
 
-  const messages = await prisma.message.findMany({
+  const messages = await ctx.db.message.findMany({
     where: customPageId
       ? { customPageId }
       : { threadId },
@@ -64,7 +61,7 @@ export async function GET(req: NextRequest) {
       if (isStale && !isStillRunning) {
         // Auto-resolve stale message
         const updatedMeta = { ...meta, processing: false, error: true, timedOut: true };
-        await prisma.message.update({
+        await ctx.db.message.update({
           where: { id: last.id },
           data: { metadata: updatedMeta },
         });
@@ -79,10 +76,8 @@ export async function GET(req: NextRequest) {
 // ─── POST: Send message with persistence ─────────────────────
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const {
     message,
@@ -97,19 +92,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Message required" }, { status: 400 });
   }
 
-  const userRole = session.user.role;
+  const userRole = ctx.role;
+  const tenantId = ctx.tenantId;
   const isUIAgent = context === "ui-agent";
   const isPageEditor = context === "page-editor";
   const isUIMode = isUIAgent || isPageEditor;
 
-  if (isUIAgent && userRole !== "SUPERADMIN") {
+  // UI Agent requires ADMIN role (company admin with full access)
+  if (isUIAgent && userRole !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Resolve customPageId from pageSlug if needed
   let customPageId: string | null = rawPageId || null;
   if (!customPageId && pageSlug) {
-    const page = await prisma.customPage.findUnique({
+    const page = await ctx.db.customPage.findFirst({
       where: { slug: pageSlug },
       select: { id: true },
     });
@@ -120,13 +117,13 @@ export async function POST(req: NextRequest) {
     // 1. Save user message to DB
     const hasThread = customPageId || threadId;
     if (hasThread) {
-      await prisma.message.create({
+      await ctx.db.message.create({
         data: {
           content: message,
           role: "user",
           customPageId: customPageId || null,
           threadId: !customPageId ? (threadId || null) : null,
-          userId: session.user.id,
+          userId: ctx.session.user.id,
         },
       });
     }
@@ -135,7 +132,7 @@ export async function POST(req: NextRequest) {
     let chatMessages: MessageParam[] = [];
 
     if (hasThread) {
-      const history = await prisma.message.findMany({
+      const history = await ctx.db.message.findMany({
         where: customPageId
           ? { customPageId }
           : { threadId },
@@ -184,7 +181,7 @@ export async function POST(req: NextRequest) {
       chatMessages.shift();
     }
 
-    const schemaContext = await getSchemaContext();
+    const schemaContext = await getSchemaContext(tenantId);
 
     // Build tools based on context
     const tools = [...getDbTools()];
@@ -198,7 +195,7 @@ export async function POST(req: NextRequest) {
         tools.push(...instanceTools);
       }
     }
-    if (userRole === "SUPERADMIN") {
+    if (userRole === "ADMIN") {
       tools.push(...getSqlTools());
     }
 
@@ -206,7 +203,7 @@ export async function POST(req: NextRequest) {
       ? `User role: MANAGER. Can query, create, and update up to 3 records. Cannot delete. Cannot bulk-edit more than 3 records.`
       : `User role: ${userRole}. Full access to all database operations including delete and bulk updates.`;
 
-    const permanentContexts = await prisma.agentContext.findMany({
+    const permanentContexts = await ctx.db.agentContext.findMany({
       where: { enabled: true, type: "PERMANENT" },
       orderBy: { order: "asc" },
     });
@@ -217,7 +214,7 @@ export async function POST(req: NextRequest) {
     // Build page context if thread belongs to a page
     let pageContext = "";
     if (customPageId) {
-      const page = await prisma.customPage.findUnique({
+      const page = await ctx.db.customPage.findUnique({
         where: { id: customPageId },
         select: { title: true, slug: true, published: true, code: true },
       });
@@ -248,7 +245,7 @@ You are helping the user explore and manage their database. Always:
 5. For large tables, use count_records first, then paginated queries`;
     }
 
-    const systemPrompt = `You are an agent for Agent Console, a business management platform.
+    const systemPrompt = `You are an agent for Agent Bizi, a business management platform.
 
 ${permissionInfo}
 
@@ -264,7 +261,7 @@ Important:
 - When the user asks to see data, query it — don't make up data`;
 
     // 3. Create assistant placeholder for background processing
-    const assistantMsg = await prisma.message.create({
+    const assistantMsg = await ctx.db.message.create({
       data: {
         content: "",
         role: "assistant",
@@ -308,21 +305,22 @@ Important:
               messages: chatMessages,
               systemPrompt,
               tools,
+              tenantId,
               executeTool: async (name, input) => {
                 let toolResult: string;
 
                 if (["query_data", "count_records", "create_record", "update_records", "delete_records"].includes(name)) {
-                  toolResult = await executeDbTool(name, input, userRole);
+                  toolResult = await executeDbTool(name, input, userRole, tenantId);
                 } else if (["create_page", "update_page", "get_page", "list_pages", "delete_page"].includes(name)) {
-                  toolResult = await executePageTool(name, input);
+                  toolResult = await executePageTool(name, input, tenantId);
                 } else if (name === "create_snapshot") {
                   const { createSnapshot } = await import("@/lib/snapshots");
-                  const snapshot = await createSnapshot(input.label as string, customPageId || undefined);
+                  const snapshot = await createSnapshot(input.label as string, tenantId, customPageId || undefined);
                   toolResult = JSON.stringify({ created: { id: snapshot.id, label: snapshot.label, dataSize: snapshot.dataSize, deduplicated: snapshot.deduplicated } });
                 } else if (["create_instance_page", "update_instance_page_code", "get_instance_page", "verify_instance_code", "introspect_table", "list_instance_pages_code"].includes(name)) {
-                  toolResult = await executeInstancePageTool(name, input);
+                  toolResult = await executeInstancePageTool(name, input, tenantId);
                 } else if (name === "execute_sql") {
-                  toolResult = await executeSqlTool(input, userRole);
+                  toolResult = await executeSqlTool(input, userRole, tenantId);
                 } else {
                   toolResult = `Error: Unknown tool "${name}"`;
                 }
@@ -338,7 +336,7 @@ Important:
                         title: parsed.created.title || (input.title as string),
                       };
                       // Link all orphan thread messages to the new page
-                      await prisma.message.updateMany({
+                      await ctx.db.message.updateMany({
                         where: { threadId },
                         data: { customPageId: parsed.created.id, threadId: null },
                       });
@@ -359,7 +357,7 @@ Important:
               onLoopComplete: async (currentText) => {
                 // Intermediate save: update message with progress
                 const startedAt = (assistantMsg.metadata as Record<string, string>)?.processingStartedAt || new Date().toISOString();
-                await prisma.message.update({
+                await ctx.db.message.update({
                   where: { id: assistantMsg.id },
                   data: {
                     content: currentText,
@@ -374,7 +372,7 @@ Important:
             });
 
             // Final save: mark processing complete
-            await prisma.message.update({
+            await ctx.db.message.update({
               where: { id: assistantMsg.id },
               data: {
                 content: result,
@@ -397,7 +395,7 @@ Important:
           } catch (err) {
             const errorMsg = err instanceof Error ? err.message : "Unknown error";
             // Save error to DB
-            await prisma.message.update({
+            await ctx.db.message.update({
               where: { id: assistantMsg.id },
               data: {
                 content: `Error: ${errorMsg}`,

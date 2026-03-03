@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 import { agenticChat } from "@/lib/claude";
 import {
@@ -12,12 +12,12 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const eventId = req.nextUrl.searchParams.get("eventId");
 
-  const messages = await prisma.message.findMany({
+  const messages = await ctx.db.message.findMany({
     where: { eventId: eventId || null },
     orderBy: { createdAt: "asc" },
     take: 100,
@@ -26,11 +26,14 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ messages });
 }
 
-async function buildSystemPrompt(eventId: string | null): Promise<string> {
-  let systemPrompt = "You are a helpful business assistant in Agent Console.";
+async function buildSystemPrompt(eventId: string | null, tenantId: string): Promise<string> {
+  const { tenantPrisma } = await import("@/lib/prisma-tenant");
+  const db = tenantPrisma(tenantId);
+
+  let systemPrompt = "You are a helpful business assistant in Agent Bizi.";
 
   // Load permanent contexts
-  const contexts = await prisma.agentContext.findMany({
+  const contexts = await db.agentContext.findMany({
     where: { enabled: true, type: "PERMANENT" },
     orderBy: { order: "asc" },
   });
@@ -40,7 +43,7 @@ async function buildSystemPrompt(eventId: string | null): Promise<string> {
 
   // Load event context if event chat
   if (eventId) {
-    const event = await prisma.event.findUnique({
+    const event = await db.event.findUnique({
       where: { id: eventId },
       include: { category: true },
     });
@@ -52,20 +55,20 @@ async function buildSystemPrompt(eventId: string | null): Promise<string> {
     }
   }
 
-  // Load company info
-  const company = await prisma.companyInfo.findUnique({ where: { id: "default" } });
-  if (company && company.name) {
-    systemPrompt += `\n\nCompany: ${company.name}`;
-    if (company.ico) systemPrompt += `, ICO: ${company.ico}`;
-    if (company.dic) systemPrompt += `, DIC: ${company.dic}`;
+  // Load company info from Tenant
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  if (tenant && tenant.companyName) {
+    systemPrompt += `\n\nCompany: ${tenant.companyName}`;
+    if (tenant.ico) systemPrompt += `, ICO: ${tenant.ico}`;
+    if (tenant.dic) systemPrompt += `, DIC: ${tenant.dic}`;
   }
 
   return systemPrompt;
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const body = await req.json();
   const { message, eventId, images } = body;
@@ -74,22 +77,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "message required" }, { status: 400 });
   }
 
-  const userRole = session.user.role;
+  const userRole = ctx.role;
+  const tenantId = ctx.tenantId;
 
   // Save user message
-  await prisma.message.create({
+  await ctx.db.message.create({
     data: {
       content: message,
       role: "user",
       eventId: eventId || null,
-      userId: session.user.id,
+      userId: ctx.session.user.id,
     },
   });
 
-  const basePrompt = await buildSystemPrompt(eventId);
+  const basePrompt = await buildSystemPrompt(eventId, tenantId);
 
   // Get chat history (80 messages)
-  const history = await prisma.message.findMany({
+  const history = await ctx.db.message.findMany({
     where: { eventId: eventId || null },
     orderBy: { createdAt: "asc" },
     take: 80,
@@ -118,7 +122,7 @@ export async function POST(req: NextRequest) {
 
   // All roles get agentic mode with DB tools
   try {
-    const schemaContext = await getSchemaContext();
+    const schemaContext = await getSchemaContext(tenantId);
     const tools = [...getDbTools()];
 
     const permissionInfo = userRole === "MANAGER"
@@ -158,9 +162,10 @@ When asked to import file data into the database, carefully analyze the data str
             messages: chatMessages,
             systemPrompt,
             tools,
+            tenantId,
             executeTool: async (name, input) => {
               if (["query_data", "count_records", "create_record", "update_records", "delete_records"].includes(name)) {
-                return executeDbTool(name, input, userRole);
+                return executeDbTool(name, input, userRole, tenantId);
               }
               return `Error: Unknown tool "${name}"`;
             },
@@ -173,7 +178,7 @@ When asked to import file data into the database, carefully analyze the data str
           });
 
           // Save assistant message
-          await prisma.message.create({
+          await ctx.db.message.create({
             data: { content: result, role: "assistant", eventId: eventId || null },
           });
 

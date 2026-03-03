@@ -23,7 +23,7 @@ import {
 
 const navItems = [
   { href: "/events", label: "Events", icon: Inbox },
-  { href: "/data", label: "Data", icon: Table2, roles: ["SUPERADMIN"] },
+  { href: "/data", label: "Data", icon: Table2, roles: ["ADMIN"] },
   { href: "/chat", label: "Chat", icon: MessageSquare },
 ];
 
@@ -172,7 +172,7 @@ function NavContent({
           <Zap className="h-4 w-4 text-primary" />
         </div>
         <span className="font-semibold text-sm tracking-tight">
-          Agent Console
+          Agent Bizi
         </span>
       </Link>
 
@@ -284,7 +284,7 @@ export function Nav({ userRole }: { userRole?: string }) {
             <Zap className="h-3.5 w-3.5 text-primary" />
           </div>
           <span className="font-semibold text-sm tracking-tight">
-            Agent Console
+            Agent Bizi
           </span>
         </Link>
       </header>

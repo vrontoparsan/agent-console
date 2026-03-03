@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { tenantPrisma, getTenantSchema } from "@/lib/prisma-tenant";
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import * as fs from "fs";
 import * as path from "path";
@@ -12,7 +13,6 @@ const ALLOWED_MODELS: Record<string, string> = {
   message: "Message",
   eventcategory: "EventCategory",
   agentcontext: "AgentContext",
-  companyinfo: "CompanyInfo",
   cronjob: "CronJob",
   emailaccount: "EmailAccount",
   custompage: "CustomPage",
@@ -29,10 +29,11 @@ function resolveModel(tableName: string): string | null {
   return ALLOWED_MODELS[key] || null;
 }
 
-function getPrismaModel(modelName: string) {
+function getTenantModel(tenantId: string, modelName: string) {
+  const db = tenantPrisma(tenantId);
   const key = modelName.charAt(0).toLowerCase() + modelName.slice(1);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (prisma as any)[key];
+  return (db as any)[key];
 }
 
 function sanitizeRecord(modelName: string, record: Record<string, unknown>): Record<string, unknown> {
@@ -114,7 +115,7 @@ export function getDbTools(): Tool[] {
     },
     {
       name: "delete_records",
-      description: "Delete records matching a where filter. Only ADMIN and SUPERADMIN can use this.",
+      description: "Delete records matching a where filter. Only ADMIN can use this.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -208,13 +209,14 @@ Config structure:
 export async function executeDbTool(
   name: string,
   input: Record<string, unknown>,
-  userRole: string
+  userRole: string,
+  tenantId: string
 ): Promise<string> {
   switch (name) {
     case "query_data": {
       const modelName = resolveModel(input.table as string);
       if (!modelName) return `Error: Unknown table "${input.table}". Use one of: ${Object.values(ALLOWED_MODELS).join(", ")}`;
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       const limit = Math.min(Number(input.limit) || 20, 100);
       const offset = Number(input.offset) || 0;
 
@@ -238,7 +240,7 @@ export async function executeDbTool(
     case "count_records": {
       const modelName = resolveModel(input.table as string);
       if (!modelName) return `Error: Unknown table "${input.table}"`;
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       try {
         const count = await model.count({ where: input.where || {} });
         return JSON.stringify({ table: modelName, count });
@@ -250,7 +252,7 @@ export async function executeDbTool(
     case "create_record": {
       const modelName = resolveModel(input.table as string);
       if (!modelName) return `Error: Unknown table "${input.table}"`;
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       const data = sanitizeData(modelName, input.data as Record<string, unknown>);
       try {
         const record = await model.create({ data });
@@ -263,7 +265,7 @@ export async function executeDbTool(
     case "update_records": {
       const modelName = resolveModel(input.table as string);
       if (!modelName) return `Error: Unknown table "${input.table}"`;
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       const data = sanitizeData(modelName, input.data as Record<string, unknown>);
       const where = input.where as Record<string, unknown>;
 
@@ -284,12 +286,12 @@ export async function executeDbTool(
     }
 
     case "delete_records": {
-      if (!["ADMIN", "SUPERADMIN"].includes(userRole)) {
-        return "Error: Only ADMIN and SUPERADMIN can delete records.";
+      if (userRole !== "ADMIN") {
+        return "Error: Only ADMIN can delete records.";
       }
       const modelName = resolveModel(input.table as string);
       if (!modelName) return `Error: Unknown table "${input.table}"`;
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       try {
         const result = await model.deleteMany({ where: input.where || {} });
         return JSON.stringify({ deleted: result.count, table: modelName });
@@ -305,12 +307,15 @@ export async function executeDbTool(
 
 export async function executePageTool(
   name: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  tenantId: string
 ): Promise<string> {
+  const db = tenantPrisma(tenantId);
+
   switch (name) {
     case "create_page": {
       try {
-        const page = await prisma.customPage.create({
+        const page = await db.customPage.create({
           data: {
             slug: input.slug as string,
             title: input.title as string,
@@ -334,8 +339,8 @@ export async function executePageTool(
       if (input.published !== undefined) data.published = input.published;
 
       try {
-        const page = await prisma.customPage.update({
-          where: { slug },
+        const page = await db.customPage.update({
+          where: { slug_tenantId: { slug, tenantId } },
           data,
         });
         return JSON.stringify({ updated: { slug: page.slug, title: page.title } });
@@ -346,7 +351,7 @@ export async function executePageTool(
 
     case "get_page": {
       try {
-        const page = await prisma.customPage.findUnique({
+        const page = await db.customPage.findFirst({
           where: { slug: input.slug as string },
         });
         if (!page) return `Error: Page "${input.slug}" not found`;
@@ -357,7 +362,7 @@ export async function executePageTool(
     }
 
     case "list_pages": {
-      const pages = await prisma.customPage.findMany({
+      const pages = await db.customPage.findMany({
         select: { slug: true, title: true, icon: true, published: true, order: true },
         orderBy: { order: "asc" },
       });
@@ -366,7 +371,11 @@ export async function executePageTool(
 
     case "delete_page": {
       try {
-        await prisma.customPage.delete({ where: { slug: input.slug as string } });
+        const page = await db.customPage.findFirst({
+          where: { slug: input.slug as string },
+        });
+        if (!page) return `Error: Page "${input.slug}" not found`;
+        await db.customPage.delete({ where: { id: page.id } });
         return JSON.stringify({ deleted: input.slug });
       } catch (err) {
         return `Error deleting page: ${err instanceof Error ? err.message : String(err)}`;
@@ -382,7 +391,7 @@ export function getSqlTools(): Tool[] {
   return [
     {
       name: "execute_sql",
-      description: `Execute raw SQL against the database. SUPERADMIN only. Use for:
+      description: `Execute raw SQL against the database. ADMIN only. Use for:
 - CREATE TABLE: Create new custom tables for custom page sections (e.g. orders, vacations)
 - ALTER TABLE: Add/modify columns on existing custom tables
 - INSERT INTO: Seed initial data into custom tables
@@ -414,31 +423,32 @@ Rules:
 const CORE_TABLES = [
   "user", "event", "eventcategory", "emailaccount", "usercategoryaccess",
   "useremailaccountaccess", "userpageaccess", "eventaction", "message",
-  "agentcontext", "companyinfo", "custompage", "cronjob",
+  "agentcontext", "companyinfo", "custompage", "cronjob", "tenant",
   "_prisma_migrations",
 ];
 
-// Rewrite unqualified cstm_ / custom_ table references to instance schema.
-// e.g. "CREATE TABLE cstm_orders" → "CREATE TABLE instance.cstm_orders"
-function qualifyInstanceTables(sql: string): string {
-  // Match cstm_ or custom_ table names that are NOT already prefixed with "instance."
+// Rewrite unqualified cstm_ / custom_ table references to the tenant's schema.
+function qualifyInstanceTables(sql: string, tenantSchema: string): string {
+  const escaped = tenantSchema.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return sql.replace(
-    /(?<!instance\.)(?<![a-z0-9_])((?:cstm_|custom_)[a-z0-9_]+)/gi,
-    "instance.$1"
+    new RegExp(`(?<!${escaped}\\.)(?<![a-z0-9_])((?:cstm_|custom_)[a-z0-9_]+)`, "gi"),
+    `${tenantSchema}.$1`
   );
 }
 
 export async function executeSqlTool(
   input: Record<string, unknown>,
-  userRole: string
+  userRole: string,
+  tenantId: string
 ): Promise<string> {
-  if (userRole !== "SUPERADMIN") {
-    return "Error: Only SUPERADMIN can execute raw SQL.";
+  if (userRole !== "ADMIN") {
+    return "Error: Only ADMIN can execute raw SQL.";
   }
 
+  const tenantSchema = getTenantSchema(tenantId);
   const rawSql = (input.sql as string).trim();
-  // Auto-qualify cstm_*/custom_* table refs to instance schema
-  const sql = qualifyInstanceTables(rawSql);
+  // Auto-qualify cstm_*/custom_* table refs to tenant schema
+  const sql = qualifyInstanceTables(rawSql, tenantSchema);
   const params = (input.params as unknown[]) || [];
 
   // Block modifications to core tables
@@ -575,8 +585,12 @@ const MAX_CODE_SIZE = 50_000;
 
 export async function executeInstancePageTool(
   name: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  tenantId: string
 ): Promise<string> {
+  const db = tenantPrisma(tenantId);
+  const tenantSchema = getTenantSchema(tenantId);
+
   switch (name) {
     case "create_instance_page": {
       const code = input.code as string;
@@ -584,7 +598,7 @@ export async function executeInstancePageTool(
         return `Error: Code exceeds maximum size of ${MAX_CODE_SIZE} characters`;
       }
       try {
-        const page = await prisma.customPage.create({
+        const page = await db.customPage.create({
           data: {
             slug: input.slug as string,
             title: input.title as string,
@@ -610,11 +624,15 @@ export async function executeInstancePageTool(
       if (input.icon !== undefined) data.icon = input.icon;
       if (input.published !== undefined) data.published = input.published;
       try {
-        const page = await prisma.customPage.update({
+        const page = await db.customPage.findFirst({
           where: { slug: input.slug as string },
+        });
+        if (!page) return `Error: Page "${input.slug}" not found`;
+        const updated = await db.customPage.update({
+          where: { id: page.id },
           data,
         });
-        return JSON.stringify({ updated: { slug: page.slug, title: page.title } });
+        return JSON.stringify({ updated: { slug: updated.slug, title: updated.title } });
       } catch (err) {
         return `Error updating instance page: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -622,7 +640,7 @@ export async function executeInstancePageTool(
 
     case "get_instance_page": {
       try {
-        const page = await prisma.customPage.findUnique({
+        const page = await db.customPage.findFirst({
           where: { slug: input.slug as string },
         });
         if (!page) return `Error: Page "${input.slug}" not found`;
@@ -657,7 +675,7 @@ export async function executeInstancePageTool(
 
     case "list_instance_pages_code": {
       try {
-        const pages = await prisma.customPage.findMany({
+        const pages = await db.customPage.findMany({
           where: { code: { not: null } },
           select: { slug: true, title: true, code: true },
           orderBy: { updatedAt: "desc" },
@@ -693,12 +711,13 @@ export async function executeInstancePageTool(
         >(
           `SELECT column_name, data_type, column_default, is_nullable
            FROM information_schema.columns
-           WHERE table_schema = 'instance' AND table_name = $1
+           WHERE table_schema = $1 AND table_name = $2
            ORDER BY ordinal_position`,
+          tenantSchema,
           table
         );
         if (columns.length === 0) {
-          return `Error: Table "${table}" not found in instance schema.`;
+          return `Error: Table "${table}" not found in tenant schema.`;
         }
         return JSON.stringify({ table, columns }, null, 2);
       } catch (err) {
@@ -711,7 +730,9 @@ export async function executeInstancePageTool(
   }
 }
 
-export async function getSchemaContext(): Promise<string> {
+export async function getSchemaContext(tenantId: string): Promise<string> {
+  const tenantSchema = getTenantSchema(tenantId);
+
   // Read prisma schema
   let schema = "";
   try {
@@ -720,26 +741,27 @@ export async function getSchemaContext(): Promise<string> {
     schema = "(schema file not readable)";
   }
 
-  // Get row counts for all tables
+  // Get row counts for all tables (tenant-scoped)
   const counts: Record<string, number> = {};
   for (const [, modelName] of Object.entries(ALLOWED_MODELS)) {
     try {
-      const model = getPrismaModel(modelName);
+      const model = getTenantModel(tenantId, modelName);
       counts[modelName] = await model.count();
     } catch {
       counts[modelName] = -1;
     }
   }
 
-  // Discover custom tables (created via execute_sql)
+  // Discover custom tables in tenant's schema
   let customTables = "";
   try {
     const tables = await prisma.$queryRawUnsafe<{ table_name: string; column_name: string; data_type: string }[]>(
       `SELECT t.table_name, c.column_name, c.data_type
        FROM information_schema.tables t
        JOIN information_schema.columns c ON c.table_name = t.table_name AND c.table_schema = t.table_schema
-       WHERE t.table_schema = 'instance' AND (t.table_name LIKE 'cstm_%' OR t.table_name LIKE 'custom_%')
-       ORDER BY t.table_name, c.ordinal_position`
+       WHERE t.table_schema = $1 AND (t.table_name LIKE 'cstm_%' OR t.table_name LIKE 'custom_%')
+       ORDER BY t.table_name, c.ordinal_position`,
+      tenantSchema
     );
     if (tables.length > 0) {
       const grouped: Record<string, { column_name: string; data_type: string }[]> = {};

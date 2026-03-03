@@ -39,20 +39,63 @@ enum ContextType {
   CONDITIONAL
 }
 
-model User {
+// ─── Multi-Tenancy ──────────────────────────────────────────
+
+model Tenant {
   id        String   @id @default(cuid())
-  email     String   @unique
   name      String
-  password  String
-  role      Role     @default(MANAGER)
+  slug      String   @unique
+  plan      String   @default("standard")
+  active    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Company settings (replaces CompanyInfo)
+  companyName String  @default("")
+  ico         String  @default("")
+  dic         String  @default("")
+  icDph       String  @default("")
+  address     String  @default("")
+  email       String  @default("")
+  phone       String  @default("")
+  web         String  @default("")
+  extra       Json?
+
+  // Relations
+  users             User[]
+  events            Event[]
+  eventCategories   EventCategory[]
+  emailAccounts     EmailAccount[]
+  eventActions      EventAction[]
+  customPages       CustomPage[]
+  sectionCategories SectionCategory[]
+  agentContexts     AgentContext[]
+  cronJobs          CronJob[]
+  messages          Message[]
+  snapshots         Snapshot[]
+}
+
+// ─── Core Models ────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String
+  name      String
+  password  String
+  role      Role     @default(MANAGER)
+  tenantId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant             Tenant?                  @relation(fields: [tenantId], references: [id])
   messages           Message[]
   events             Event[]                  @relation("assignedEvents")
   categoryAccess     UserCategoryAccess[]
   emailAccountAccess UserEmailAccountAccess[]
   pageAccess         UserPageAccess[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
 }
 
 model Event {
@@ -70,38 +113,45 @@ model Event {
   senderEmail    String?
   senderName     String?
   metadata       Json?
+  tenantId       String?
   createdAt      DateTime    @default(now())
   resolvedAt     DateTime?
   updatedAt      DateTime    @updatedAt
 
+  tenant       Tenant?        @relation(fields: [tenantId], references: [id])
   category     EventCategory? @relation(fields: [categoryId], references: [id])
   assignee     User?          @relation("assignedEvents", fields: [assignedTo], references: [id])
   emailAccount EmailAccount?  @relation(fields: [emailAccountId], references: [id], onDelete: SetNull)
   actions      EventAction[]
   messages     Message[]
 
-  @@index([status])
-  @@index([createdAt(sort: Desc)])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt(sort: Desc)])
   @@index([emailAccountId])
 }
 
 model EventCategory {
   id          String  @id @default(cuid())
-  name        String  @unique
+  name        String
   description String?
   contextMd   String? @db.Text
   color       String?
+  tenantId    String?
 
+  tenant     Tenant?              @relation(fields: [tenantId], references: [id])
   events     Event[]
   userAccess UserCategoryAccess[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@unique([name, tenantId])
+  @@index([tenantId])
 }
 
 model EmailAccount {
   id           String  @id @default(cuid())
   label        String
-  email        String  @unique
+  email        String
   imapHost     String
   imapPort     Int     @default(993)
   imapUser     String
@@ -115,11 +165,16 @@ model EmailAccount {
   enabled      Boolean @default(true)
   lastPolledAt DateTime?
   lastError    String?
+  tenantId     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  tenant     Tenant?                  @relation(fields: [tenantId], references: [id])
   events     Event[]
   userAccess UserEmailAccountAccess[]
+
+  @@unique([email, tenantId])
+  @@index([tenantId])
 }
 
 model UserCategoryAccess {
@@ -154,12 +209,15 @@ model EventAction {
   status      ActionStatus @default(SUGGESTED)
   aiSuggested Boolean      @default(true)
   result      String?      @db.Text
+  tenantId    String?
   createdAt   DateTime     @default(now())
   executedAt  DateTime?
 
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@index([eventId])
+  @@index([tenantId])
 }
 
 model Message {
@@ -171,15 +229,17 @@ model Message {
   threadId     String?
   userId       String?
   metadata     Json?
+  tenantId     String?
   createdAt    DateTime @default(now())
 
+  tenant     Tenant?     @relation(fields: [tenantId], references: [id])
   event      Event?      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   customPage CustomPage? @relation(fields: [customPageId], references: [id], onDelete: Cascade)
   user       User?       @relation(fields: [userId], references: [id])
 
-  @@index([eventId])
-  @@index([customPageId])
-  @@index([threadId])
+  @@index([tenantId, eventId])
+  @@index([tenantId, customPageId])
+  @@index([tenantId, threadId])
   @@index([createdAt(sort: Desc)])
 }
 
@@ -190,9 +250,16 @@ model AgentContext {
   content   String      @db.Text
   enabled   Boolean     @default(true)
   order     Int         @default(0)
+  tenantId  String?
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }
+
+// ─── CompanyInfo (kept for migration, will be dropped later) ──
 
 model CompanyInfo {
   id      String @id @default("default")
@@ -207,20 +274,26 @@ model CompanyInfo {
   extra   Json?
 }
 
-model SectionCategory {
-  id    String @id @default(cuid())
-  name  String
-  order Int    @default(0)
+// ─── Sections ───────────────────────────────────────────────
 
-  pages CustomPage[]
+model SectionCategory {
+  id       String @id @default(cuid())
+  name     String
+  order    Int    @default(0)
+  tenantId String?
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  pages  CustomPage[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 model CustomPage {
   id         String   @id @default(cuid())
-  slug       String   @unique
+  slug       String
   title      String
   icon       String?
   config     Json     @default("{}")
@@ -228,14 +301,18 @@ model CustomPage {
   published  Boolean  @default(false)
   order      Int      @default(0)
   categoryId String?
+  tenantId   String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  tenant     Tenant?          @relation(fields: [tenantId], references: [id])
   category   SectionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   userAccess UserPageAccess[]
   messages   Message[]
   snapshots  Snapshot[]
 
+  @@unique([slug, tenantId])
+  @@index([tenantId])
   @@index([categoryId])
 }
 
@@ -264,15 +341,17 @@ model Snapshot {
   dataSize     Int      @default(0)
 
   isCurrent    Boolean  @default(false)
+  tenantId     String?
 
   createdAt    DateTime @default(now())
 
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id])
   parent       Snapshot?  @relation("SnapshotTree", fields: [parentId], references: [id])
   children     Snapshot[] @relation("SnapshotTree")
   customPage   CustomPage? @relation(fields: [customPageId], references: [id], onDelete: SetNull)
 
-  @@index([isCurrent])
-  @@index([createdAt(sort: Desc)])
+  @@index([tenantId, isCurrent])
+  @@index([tenantId, createdAt(sort: Desc)])
   @@index([dataHash])
   @@index([customPageId])
 }
@@ -285,6 +364,11 @@ model CronJob {
   enabled   Boolean   @default(false)
   lastRun   DateTime?
   nextRun   DateTime?
+  tenantId  String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
 }

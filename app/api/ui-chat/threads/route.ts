@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || !["SUPERADMIN", "ADMIN"].includes(session.user.role)) {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (!["ADMIN"].includes(ctx.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // All custom pages with message counts
-  const pages = await prisma.customPage.findMany({
+  const pages = await ctx.db.customPage.findMany({
     select: {
       id: true,
       slug: true,
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
   });
 
   // Orphan threads (new sections not yet linked to a page)
-  const orphans = await prisma.message.groupBy({
+  const orphans = await ctx.db.message.groupBy({
     by: ["threadId"],
     where: { threadId: { not: null }, customPageId: null },
     _count: true,

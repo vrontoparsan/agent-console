@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -21,16 +21,17 @@ function isValidColumn(col: string): boolean {
  * Looks through CustomPages the user has access to and checks if any
  * component references the given table.
  */
-async function managerHasTableAccess(userId: string, table: string): Promise<boolean> {
-  const accessList = await prisma.userPageAccess.findMany({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function managerHasTableAccess(db: any, userId: string, table: string): Promise<boolean> {
+  const accessList = await db.userPageAccess.findMany({
     where: { userId },
     select: { pageId: true },
   });
 
   if (accessList.length === 0) return false;
 
-  const pages = await prisma.customPage.findMany({
-    where: { id: { in: accessList.map((a) => a.pageId) } },
+  const pages = await db.customPage.findMany({
+    where: { id: { in: accessList.map((a: { pageId: string }) => a.pageId) } },
     select: { config: true, code: true },
   });
 
@@ -55,11 +56,12 @@ async function managerHasTableAccess(userId: string, table: string): Promise<boo
 /**
  * Get text columns for a table (for ILIKE search).
  */
-async function getTextColumns(table: string): Promise<string[]> {
+async function getTextColumns(tenantSchema: string, table: string): Promise<string[]> {
   const cols = await prisma.$queryRawUnsafe<{ column_name: string }[]>(
     `SELECT column_name FROM information_schema.columns
-     WHERE table_schema = 'instance' AND table_name = $1
+     WHERE table_schema = $1 AND table_name = $2
      AND data_type IN ('text', 'character varying', 'character')`,
+    tenantSchema,
     table
   );
   return cols.map((c) => c.column_name);
@@ -69,9 +71,10 @@ async function getTextColumns(table: string): Promise<string[]> {
  * GET — query cstm_ table with server-side sort, filter, search, pagination.
  */
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
+  const tenantSchema = ctx.tenantSchema;
   const params = req.nextUrl.searchParams;
   const table = params.get("table") || "";
 
@@ -80,8 +83,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Permission check
-  if (session.user.role === "MANAGER") {
-    const hasAccess = await managerHasTableAccess(session.user.id, table);
+  if (ctx.role === "MANAGER") {
+    const hasAccess = await managerHasTableAccess(ctx.db, ctx.session.user.id, table);
     if (!hasAccess) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -117,7 +120,7 @@ export async function GET(req: NextRequest) {
 
     // Full-text search across text columns
     if (search) {
-      const textCols = await getTextColumns(table);
+      const textCols = await getTextColumns(tenantSchema, table);
       if (textCols.length > 0) {
         const searchClauses = textCols.map((col) => {
           const clause = `"${col}" ILIKE $${paramIdx}`;
@@ -139,22 +142,23 @@ export async function GET(req: NextRequest) {
 
     // Count
     const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(
-      `SELECT count(*)::bigint as count FROM instance."${table}" ${whereClause}`,
+      `SELECT count(*)::bigint as count FROM "${tenantSchema}"."${table}" ${whereClause}`,
       ...queryParams
     );
     const total = Number(countResult[0]?.count || 0);
 
     // Data
     const data = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `SELECT * FROM instance."${table}" ${whereClause} ${orderClause} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
+      `SELECT * FROM "${tenantSchema}"."${table}" ${whereClause} ${orderClause} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
       ...queryParams
     );
 
     // Get column info
     const colInfo = await prisma.$queryRawUnsafe<{ column_name: string; data_type: string }[]>(
       `SELECT column_name, data_type FROM information_schema.columns
-       WHERE table_schema = 'instance' AND table_name = $1
+       WHERE table_schema = $1 AND table_name = $2
        ORDER BY ordinal_position`,
+      tenantSchema,
       table
     );
 
@@ -175,9 +179,10 @@ export async function GET(req: NextRequest) {
  * POST — insert record into cstm_ table.
  */
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
+  const tenantSchema = ctx.tenantSchema;
   const body = await req.json();
   const { table, data } = body as { table: string; data: Record<string, unknown> };
 
@@ -188,8 +193,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "data object required" }, { status: 400 });
   }
 
-  if (session.user.role === "MANAGER") {
-    const hasAccess = await managerHasTableAccess(session.user.id, table);
+  if (ctx.role === "MANAGER") {
+    const hasAccess = await managerHasTableAccess(ctx.db, ctx.session.user.id, table);
     if (!hasAccess) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -205,7 +210,7 @@ export async function POST(req: NextRequest) {
     const values = entries.map(([, v]) => v);
 
     const result = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `INSERT INTO instance."${table}" (${columns}) VALUES (${placeholders}) RETURNING *`,
+      `INSERT INTO "${tenantSchema}"."${table}" (${columns}) VALUES (${placeholders}) RETURNING *`,
       ...values
     );
 
@@ -222,9 +227,10 @@ export async function POST(req: NextRequest) {
  * PUT — update record in cstm_ table.
  */
 export async function PUT(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
+  const tenantSchema = ctx.tenantSchema;
   const body = await req.json();
   const { table, id, data } = body as { table: string; id: string; data: Record<string, unknown> };
 
@@ -238,8 +244,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "data object required" }, { status: 400 });
   }
 
-  if (session.user.role === "MANAGER") {
-    const hasAccess = await managerHasTableAccess(session.user.id, table);
+  if (ctx.role === "MANAGER") {
+    const hasAccess = await managerHasTableAccess(ctx.db, ctx.session.user.id, table);
     if (!hasAccess) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -257,7 +263,7 @@ export async function PUT(req: NextRequest) {
     const values = [...entries.map(([, v]) => v), id];
 
     const result = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-      `UPDATE instance."${table}" SET ${setClauses.join(", ")} WHERE id = $${values.length} RETURNING *`,
+      `UPDATE "${tenantSchema}"."${table}" SET ${setClauses.join(", ")} WHERE id = $${values.length} RETURNING *`,
       ...values
     );
 
@@ -278,9 +284,10 @@ export async function PUT(req: NextRequest) {
  * DELETE — delete record from cstm_ table.
  */
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
+  const tenantSchema = ctx.tenantSchema;
   const table = req.nextUrl.searchParams.get("table") || "";
   const id = req.nextUrl.searchParams.get("id") || "";
 
@@ -291,13 +298,13 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  if (session.user.role === "MANAGER") {
-    const hasAccess = await managerHasTableAccess(session.user.id, table);
+  if (ctx.role === "MANAGER") {
+    const hasAccess = await managerHasTableAccess(ctx.db, ctx.session.user.id, table);
     if (!hasAccess) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
-    await prisma.$executeRawUnsafe(`DELETE FROM instance."${table}" WHERE id = $1`, id);
+    await prisma.$executeRawUnsafe(`DELETE FROM "${tenantSchema}"."${table}" WHERE id = $1`, id);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

@@ -14,7 +14,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        const user = await prisma.user.findUnique({
+        // email is no longer globally unique — use findFirst
+        const user = await prisma.user.findFirst({
           where: { email: credentials.email as string },
         });
 
@@ -31,6 +32,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
+          tenantId: user.tenantId,
         };
       },
     }),
@@ -40,6 +42,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user) {
         token.role = (user as { role: string }).role;
         token.id = user.id;
+        token.tenantId = (user as { tenantId?: string | null }).tenantId ?? null;
       }
       return token;
     },
@@ -47,6 +50,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.role = token.role as string;
         session.user.id = token.id as string;
+        session.user.tenantId = (token.tenantId as string | null) ?? null;
       }
       return session;
     },

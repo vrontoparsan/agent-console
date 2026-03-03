@@ -1,6 +1,7 @@
-import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { tenantPrisma } from "@/lib/prisma-tenant";
+import { prisma } from "@/lib/prisma";
 import { EventList } from "@/components/events/event-list";
 
 export default async function EventsPage({
@@ -10,7 +11,9 @@ export default async function EventsPage({
 }) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  if (!session.user.tenantId) redirect("/login");
 
+  const db = tenantPrisma(session.user.tenantId);
   const params = await searchParams;
   const filter = params.filter || "all";
   const page = parseInt(params.page || "1");
@@ -41,7 +44,6 @@ export default async function EventsPage({
     const allowedCategoryIds = catAccess.map((a) => a.categoryId);
     const allowedEmailAccountIds = emailAccess.map((a) => a.emailAccountId);
 
-    // Build OR clause: event matches allowed category OR allowed email account
     const orConditions = [];
     if (allowedCategoryIds.length > 0) {
       orConditions.push({ categoryId: { in: allowedCategoryIds } });
@@ -51,7 +53,6 @@ export default async function EventsPage({
     }
 
     if (orConditions.length === 0) {
-      // No access at all — show nothing
       permissionFilter = { id: "__none__" };
     } else {
       permissionFilter = { OR: orConditions };
@@ -61,7 +62,7 @@ export default async function EventsPage({
   const where = { ...statusFilter, ...permissionFilter };
 
   const [events, total] = await Promise.all([
-    prisma.event.findMany({
+    db.event.findMany({
       where,
       include: {
         category: true,
@@ -73,7 +74,7 @@ export default async function EventsPage({
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-    prisma.event.count({ where }),
+    db.event.count({ where }),
   ]);
 
   return (

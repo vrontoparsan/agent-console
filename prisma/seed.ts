@@ -4,26 +4,28 @@ import { hash } from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
+  // Check if SUPERADMIN exists
+  const existing = await prisma.user.findFirst({
+    where: { role: "SUPERADMIN" },
+  });
+  if (existing) {
+    console.log("SUPERADMIN already exists, skipping seed.");
+    return;
+  }
+
   const password = await hash(process.env.ADMIN_PASSWORD || "admin123", 12);
 
-  await prisma.user.upsert({
-    where: { email: "admin@agentconsole.com" },
-    update: {},
-    create: {
-      email: "admin@agentconsole.com",
-      name: "Admin",
+  await prisma.user.create({
+    data: {
+      email: "admin@agentbizi.com",
+      name: "Platform Admin",
       password,
       role: "SUPERADMIN",
+      tenantId: null,
     },
   });
 
-  await prisma.companyInfo.upsert({
-    where: { id: "default" },
-    update: {},
-    create: { id: "default" },
-  });
-
-  console.log("Seed completed");
+  console.log("Seed completed: SUPERADMIN created");
 }
 
 main()

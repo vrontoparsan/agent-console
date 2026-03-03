@@ -3,15 +3,15 @@ import type { Tool, MessageParam, ContentBlock } from "@anthropic-ai/sdk/resourc
 import { getAnthropicClient, failoverToNextKey } from "@/lib/anthropic";
 
 /** Helper: call fn with automatic key failover on auth errors. */
-async function withFailover<T>(fn: (client: Anthropic) => Promise<T>): Promise<T> {
+async function withFailover<T>(tenantId: string | undefined, fn: (client: Anthropic) => Promise<T>): Promise<T> {
   const maxAttempts = 3;
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      const client = await getAnthropicClient();
+      const client = await getAnthropicClient(tenantId);
       return await fn(client);
     } catch (err) {
       const status = (err as { status?: number })?.status;
-      if ((status === 401 || status === 403) && i < maxAttempts - 1 && failoverToNextKey()) {
+      if ((status === 401 || status === 403) && i < maxAttempts - 1 && failoverToNextKey(tenantId)) {
         continue;
       }
       throw err;
@@ -23,7 +23,8 @@ async function withFailover<T>(fn: (client: Anthropic) => Promise<T>): Promise<T
 export async function generateActions(
   eventTitle: string,
   eventContent: string,
-  categoryContext?: string
+  categoryContext?: string,
+  tenantId?: string
 ) {
   const systemPrompt = `You are a business process assistant. Analyze the incoming event and suggest 2-4 concrete actions the user can take to resolve it.
 ${categoryContext ? `\nContext for this type of event:\n${categoryContext}` : ""}
@@ -31,7 +32,7 @@ ${categoryContext ? `\nContext for this type of event:\n${categoryContext}` : ""
 Respond in JSON format:
 [{"title": "Action title", "description": "What this action does and why"}]`;
 
-  const response = await withFailover((client) =>
+  const response = await withFailover(tenantId, (client) =>
     client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
@@ -62,13 +63,14 @@ Respond in JSON format:
 export async function classifyAndSummarizeEmail(
   subject: string,
   bodyText: string,
-  categories: { id: string; name: string; contextMd: string | null }[]
+  categories: { id: string; name: string; contextMd: string | null }[],
+  tenantId?: string
 ): Promise<{ summary: string; type: "PLUS" | "MINUS"; categoryId: string | null }> {
   const categoryList = categories.length > 0
     ? `\nAvailable categories:\n${categories.map((c) => `- ${c.id}: ${c.name}${c.contextMd ? ` (${c.contextMd.slice(0, 100)})` : ""}`).join("\n")}`
     : "";
 
-  const response = await withFailover((client) =>
+  const response = await withFailover(tenantId, (client) =>
     client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 512,
@@ -115,6 +117,7 @@ export async function composeEmailReply({
   toneInstructions,
   signature,
   actionDescription,
+  tenantId,
 }: {
   eventTitle: string;
   eventContent: string;
@@ -126,6 +129,7 @@ export async function composeEmailReply({
   toneInstructions?: string;
   signature?: string;
   actionDescription?: string;
+  tenantId?: string;
 }): Promise<string> {
   const systemPrompt = `You are writing an email reply on behalf of a company.
 
@@ -149,7 +153,7 @@ ${eventContent}
 ${chatHistory ? `\nInternal discussion about this event:\n${chatHistory}` : ""}
 ${actionDescription ? `\nAction to take: ${actionDescription}` : "\nWrite an appropriate reply to this email."}`;
 
-  const response = await withFailover((client) =>
+  const response = await withFailover(tenantId, (client) =>
     client.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 2048,
@@ -182,6 +186,7 @@ export async function agenticChat({
   onText,
   onLoopComplete,
   maxLoops = 25,
+  tenantId,
 }: {
   messages: MessageParam[];
   systemPrompt: string;
@@ -191,6 +196,7 @@ export async function agenticChat({
   onText?: (delta: string) => void;
   onLoopComplete?: (currentText: string) => Promise<void>;
   maxLoops?: number;
+  tenantId?: string;
 }): Promise<string> {
   const history: MessageParam[] = [...messages];
   let finalText = "";
@@ -202,7 +208,7 @@ export async function agenticChat({
       onText?.("\n\n");
     }
 
-    const anthropic = await getAnthropicClient();
+    const anthropic = await getAnthropicClient(tenantId);
     const stream = anthropic.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 32768,

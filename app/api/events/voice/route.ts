@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { generateActions } from "@/lib/claude";
 import { getAnthropicClient } from "@/lib/anthropic";
 
@@ -8,10 +7,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
 
   const formData = await req.formData();
   const audioFile = formData.get("audio") as File | null;
@@ -35,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     // Send to Claude for transcription + structuring
     // SDK types don't include audio yet, but the API supports it
-    const anthropic = await getAnthropicClient();
+    const anthropic = await getAnthropicClient(ctx.tenantId);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const response = await (anthropic.messages.create as any)({
       model: "claude-sonnet-4-6",
@@ -92,7 +89,7 @@ Rules:
     const eventType = parsed.type === "PLUS" ? "PLUS" : "MINUS";
 
     // Create event
-    const event = await prisma.event.create({
+    const event = await ctx.db.event.create({
       data: {
         title: title.slice(0, 200),
         summary: parsed.summary || null,
@@ -109,10 +106,11 @@ Rules:
       const actions = await generateActions(
         title,
         parsed.rawContent || parsed.summary || "",
-        event.category?.contextMd || undefined
+        event.category?.contextMd || undefined,
+        ctx.tenantId
       );
       if (Array.isArray(actions) && actions.length > 0) {
-        await prisma.eventAction.createMany({
+        await ctx.db.eventAction.createMany({
           data: actions.map((a: { title: string; description?: string }) => ({
             eventId: event.id,
             title: a.title,
