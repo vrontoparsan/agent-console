@@ -115,7 +115,9 @@ Dockerfile                # Multi-stage Docker build
 
 **Message** — content, role (user/assistant), eventId? (event chat), customPageId? (UI Agent thread), threadId? (temp thread for new sections), userId?, metadata (toolEvents for UI Agent)
 
-**CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published, order, categoryId? (→ SectionCategory)
+**CustomPage** — slug (unique), title, icon?, config (JSON for legacy components), code? (JSX for Instance pages), published (defaults true for new sections), order, categoryId? (→ SectionCategory)
+
+**Snapshot** — label, parentId? (tree structure), customPageId?, codeState (JSON: all page codes), schemaDdl (Text: instance DDL), dataFile? (path to gzip dump), dataHash? (SHA-256 for dedup), dataSize, isCurrent (only one active)
 
 **SectionCategory** — name, order (for sidebar grouping of custom pages)
 
@@ -153,7 +155,7 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 
 - **Key storage**: `CompanyInfo.extra.aiApiKeys` — array of `{label, token}` (up to 3 slots)
 - **Env fallback**: If no DB keys found, falls back to `ANTHROPIC_OAUTH_TOKEN` env var
-- **Key type detection**: Tokens starting with `sk-ant-` → API key (`apiKey`), otherwise → OAuth token (`authToken` + beta header)
+- **Key type detection**: Tokens starting with `sk-ant-oat` → OAuth token (`authToken` + `anthropic-beta: oauth-2025-04-20` header); all other tokens → API key (`apiKey`). Important: both OAuth and API keys share the `sk-ant-` prefix, so must check for `sk-ant-oat` specifically.
 - **Failover**: `withFailover()` helper in `claude.ts` catches 401/403 errors and rotates to next configured key (up to 3 attempts)
 - **Cache**: Keys loaded from DB with 60s TTL (globalThis singleton survives hot-reloads)
 - **Management**: Settings → AI APIs (SUPERADMIN only) — 3 key slots: primary + 2 backups
@@ -185,7 +187,7 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 
 **DB Tools** — query_data, count_records, create_record, update_records, delete_records
 **Page Tools** — create_page, update_page, get_page, list_pages, delete_page
-**Instance Page Tools** — create_instance_page, update_instance_page_code, get_instance_page, verify_instance_code, introspect_table
+**Instance Page Tools** — create_instance_page, update_instance_page_code, get_instance_page, verify_instance_code, introspect_table, list_instance_pages_code, create_snapshot
 **SQL Tools** — execute_sql (SUPERADMIN only)
 
 **verify_instance_code** — Runs Sucrase compilation + security checks on JSX code. Agent MUST call this after every code write/update. Returns `{ok: true}` or `{ok: false, error: "..."}`. If error, agent fixes and re-verifies.
@@ -193,6 +195,8 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 **introspect_table** — Returns column schema (name, type, default, nullable) for a custom table. Agent uses this before writing code that references custom tables.
 
 **list_instance_pages_code** — Lists existing Instance pages with code snippets (max 5 pages, 150 lines each). Agent calls this before creating new pages to learn patterns and maintain consistency.
+
+**create_snapshot** — Creates a versioned snapshot of all page code + instance database state. Agent MUST call this after every code or schema change. Label should describe what changed. Uses pg_dump with SHA-256 deduplication.
 
 ### Agentic Quality Features
 
@@ -406,7 +410,44 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 | Manage sections (DnD) | `app/(dashboard)/settings/sections/page.tsx` |
 | AI APIs settings | `app/(dashboard)/settings/ai-apis/page.tsx` |
 | AI APIs API | `app/api/settings/ai-apis/route.ts` |
+| Snapshot service | `lib/snapshots.ts` |
+| Snapshot API | `app/api/settings/snapshots/route.ts` |
+| Snapshot restore API | `app/api/settings/snapshots/[id]/restore/route.ts` |
+| Backup & Snapshots UI | `app/(dashboard)/settings/backup/page.tsx` |
 | Main chat panel | `components/chat/chat-panel.tsx` |
 | Markdown renderer | `components/chat/markdown.tsx` |
 | Dockerfile | `Dockerfile` |
 | Startup script | `start.sh` |
+
+---
+
+## Recent Changes (2026-03-03)
+
+### Snapshot System (NEW)
+Full versioning for Instance pages + custom database tables. UI Agent creates snapshots after every code/schema change. Users can rollback to any previous state via Settings > Backup & Snapshots. Restoring auto-backups current state first, then restores code + drops/recreates instance schema from snapshot. Data dumps are SHA-256 deduplicated — code-only changes reuse the previous data file. Snapshots never deleted. Tree structure via `parentId` supports branching (rollback + new change = new branch). Files: `lib/snapshots.ts`, `app/api/settings/snapshots/`, `prisma/schema.prisma` (Snapshot model).
+
+### UI Agent Page-Editor Hardening
+**Problem:** UI Agent was creating NEW pages instead of editing the current one when opened in page-editor context.
+**Fix (3-layer defense):**
+1. `PAGE_EDITOR_CONTEXT` in `configurator-prompt.ts` rewritten with explicit "NEVER call create_instance_page" rules
+2. `create_instance_page` tool physically removed from available tools in page-editor context (`route.ts` line 194-196)
+3. `pageContext` in system prompt now repeats the slug multiple times and says "DO NOT CREATE A NEW PAGE"
+4. `update_instance_page_code` gained `published` parameter so agent can publish pages without create
+
+### Cross-Section Impact Check
+After ANY DB schema change (CREATE/ALTER/DROP TABLE), agent must call `list_instance_pages_code`, identify affected sections, and ask user before modifying other sections. Added to `configurator-prompt.ts`.
+
+### OAuth Token Classification Fix
+**Problem:** `createClient()` in `lib/anthropic.ts` used `token.startsWith("sk-ant-")` to detect API keys, but OAuth tokens (`sk-ant-oat01-...`) also match this prefix, causing `authentication_error: invalid x-api-key`.
+**Fix:** Changed to `token.startsWith("sk-ant-oat")` for OAuth detection. OAuth: `sk-ant-oat01-...`, API key: `sk-ant-api03-...`.
+
+### PageRenderer Empty Config Fix
+**Problem:** Pages with `code: null` and `config: {}` crashed on `config.components.map()` (undefined).
+**Fix:** `PageRenderer` now defaults to `components = config.components || []` with empty state UI.
+
+### New Sections Default to Published
+**Problem:** POST `/api/pages` created sections with `published: false`, so they didn't appear in sidebar even after creating.
+**Fix:** Changed default to `published: true`.
+
+### Settings UI Translated to English
+All Slovak text in `settings/sections/page.tsx` and `settings/page.tsx` translated to English for consistency.
