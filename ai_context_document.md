@@ -58,6 +58,8 @@ app/
     pages/categories/     # Section categories CRUD + reorder
     settings/             # All settings endpoints (incl. ai-apis for API key management)
     superadmin/tenants/   # Tenant CRUD (SUPERADMIN only)
+    superadmin/impersonate/[tenantId]/ # Generate signed JWT for tenant impersonation
+    auth/impersonate-callback/ # Validate impersonation JWT, set session cookie
     ui-chat/route.ts      # UI Agent/page-editor chat with threads
     ui-chat/threads/      # Thread list for UI Agent
   (auth)/
@@ -71,12 +73,14 @@ app/
     settings/             # All settings pages
       sections/           # Manage sections (DnD tree, categories, admin toggle)
   superadmin/             # Platform admin panel (SUPERADMIN only)
-    page.tsx              # Tenant list + management
+    page.tsx              # Tenant list + stats + health + billing + impersonation
     layout.tsx            # Superadmin layout
 
 components/
   ui/                     # shadcn/ui primitives (Button, Input, Badge, Card, etc.)
   layout/nav.tsx          # Sidebar navigation (role-aware)
+  layout/impersonation-banner.tsx  # Amber banner for impersonation sessions
+  superadmin/logout-button.tsx     # Logout button for superadmin sidebar
   events/                 # Event components
   chat/chat-panel.tsx     # Main chat panel (persistent, with history)
   custom-page/
@@ -125,7 +129,7 @@ Dockerfile                # Multi-stage Docker build
 
 ### Key Models
 
-**Tenant** — name, slug (unique), plan, active, company fields (companyName, ico, dic, icDph, address, email, phone, web), extra (JSON: aiApiKeys, allowAdminUIAgent, emailSettings). **Absorbs the old CompanyInfo fields.** All tenant-scoped models have a `tenantId` FK pointing here.
+**Tenant** — name, slug (unique), plan, active, company fields (companyName, ico, dic, icDph, address, email, phone, web), billingStatus (String, default "trial" — trial/active/overdue/cancelled), billingNote (String, default ""), extra (JSON: aiApiKeys, allowAdminUIAgent, emailSettings). **Absorbs the old CompanyInfo fields.** All tenant-scoped models have a `tenantId` FK pointing here.
 
 **User** — email, name, password (bcrypt), role (SUPERADMIN/ADMIN/MANAGER), tenantId? (null for SUPERADMIN). Unique constraint: `@@unique([email, tenantId])` — same email can exist in different tenants.
 
@@ -196,6 +200,7 @@ Agent Bizi uses a **hybrid isolation** model:
 - **NextAuth 5** with JWT strategy (no session DB)
 - Credentials provider (email + password)
 - **JWT contains `tenantId`** — set during login from `User.tenantId`, propagated to session via callbacks
+- **JWT contains `isImpersonating?: boolean`** — set during impersonation flow, propagated to `Session.user`
 - Session-based routing: all tenants share the same URL space (no subdomain/path prefix per tenant)
 - `requireTenantAuth()` helper in `lib/api-utils.ts` returns `{session, tenantId, tenantSchema, db, role}` — use in all tenant API routes
 
@@ -213,6 +218,24 @@ Agent Bizi uses a **hybrid isolation** model:
 1. User fills `/signup` form (company name, email, password)
 2. `POST /api/auth/signup` creates Tenant (slug from company name) + User (role=ADMIN) + PostgreSQL schema (`tenant_{id}`)
 3. User redirected to `/login`
+
+### Superadmin Panel (`/superadmin`)
+
+Platform administration for SUPERADMIN users. Accessible at `/superadmin` with dedicated layout and sidebar (includes logout button via `components/superadmin/logout-button.tsx`).
+
+**Features:**
+- **Platform statistics dashboard** — Total tenants, active tenants, total users, total events, total custom pages. Displayed as stat cards at the top.
+- **Tenant list with health monitoring** — Per-tenant health info: last activity timestamp, message/snapshot/email/cron counts, AI key status (configured or not).
+- **Billing management** — Per-tenant `billingStatus` field (trial/active/overdue/cancelled) and `billingNote` text field. Editable inline via `PATCH /api/superadmin/tenants`.
+- **Tenant impersonation** — "Impersonate" button opens tenant dashboard in a new tab. Flow:
+  1. `POST /api/superadmin/impersonate/[tenantId]` — SUPERADMIN-only, generates a short-lived signed JWT containing `tenantId`, `adminUserId`, `impersonatorId`
+  2. `GET /api/auth/impersonate-callback?token=...` — validates JWT, looks up admin user for the tenant, sets NextAuth session cookie with `isImpersonating: true` flag
+  3. Dashboard layout renders amber `ImpersonationBanner` (`components/layout/impersonation-banner.tsx`) when `session.user.isImpersonating` is true
+
+**API routes:**
+- `GET/PATCH /api/superadmin/tenants` — List tenants (with stats) / update tenant fields (including billingStatus, billingNote)
+- `POST /api/superadmin/impersonate/[tenantId]` — Generate impersonation token
+- `GET /api/auth/impersonate-callback` — Validate token and create impersonation session
 
 ---
 
@@ -486,6 +509,10 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 | Signup page | `app/(auth)/signup/page.tsx` |
 | Signup API | `app/api/auth/signup/route.ts` |
 | Superadmin panel | `app/superadmin/page.tsx` |
+| Superadmin logout button | `components/superadmin/logout-button.tsx` |
+| Impersonation API | `app/api/superadmin/impersonate/[tenantId]/route.ts` |
+| Impersonation callback | `app/api/auth/impersonate-callback/route.ts` |
+| Impersonation banner | `components/layout/impersonation-banner.tsx` |
 | Tenant CRUD API | `app/api/superadmin/tenants/route.ts` |
 | Instance AI API (+ vision) | `app/api/instance/ai/route.ts` |
 | Main chat API | `app/api/chat/route.ts` |
@@ -554,3 +581,10 @@ After ANY DB schema change (CREATE/ALTER/DROP TABLE), agent must call `list_inst
 
 ### Settings UI Translated to English
 All Slovak text in `settings/sections/page.tsx` and `settings/page.tsx` translated to English for consistency.
+
+### Superadmin Panel Enhancements
+- **Logout button** in superadmin sidebar (`components/superadmin/logout-button.tsx`)
+- **Platform statistics dashboard** — stat cards showing total tenants, active tenants, users, events, custom pages
+- **Billing management** — new `billingStatus` (trial/active/overdue/cancelled) and `billingNote` fields on Tenant model, editable via PATCH `/api/superadmin/tenants`
+- **Tenant health monitoring** — per-tenant last activity, message/snapshot/email/cron counts, AI key configuration status
+- **Tenant impersonation** — SUPERADMIN can open any tenant's dashboard in a new tab. `POST /api/superadmin/impersonate/[tenantId]` generates signed JWT, `GET /api/auth/impersonate-callback` validates and sets session with `isImpersonating` flag, amber banner shown in dashboard layout (`components/layout/impersonation-banner.tsx`). New NextAuth session fields: `isImpersonating?: boolean` on JWT and `Session.user`.
