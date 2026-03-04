@@ -12,6 +12,7 @@ enum Role {
   SUPERADMIN
   ADMIN
   MANAGER
+  EMPLOYEE
 }
 
 enum EventType {

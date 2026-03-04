@@ -102,7 +102,7 @@ export function getDbTools(): Tool[] {
     },
     {
       name: "update_records",
-      description: "Update records matching a where filter. MANAGER users can only update up to 3 records at a time.",
+      description: "Update records matching a where filter. MANAGER: max 3 records. EMPLOYEE: max 1 record.",
       input_schema: {
         type: "object" as const,
         properties: {
@@ -269,11 +269,12 @@ export async function executeDbTool(
       const data = sanitizeData(modelName, input.data as Record<string, unknown>);
       const where = input.where as Record<string, unknown>;
 
-      // Permission check: MANAGER can only update ≤3 records
-      if (userRole === "MANAGER") {
+      // Permission check: EMPLOYEE ≤1, MANAGER ≤3
+      if (userRole === "EMPLOYEE" || userRole === "MANAGER") {
+        const maxRecords = userRole === "EMPLOYEE" ? 1 : 3;
         const count = await model.count({ where });
-        if (count > 3) {
-          return `Error: MANAGER role can only update up to 3 records at a time. This query matches ${count} records. Ask an ADMIN to perform bulk updates.`;
+        if (count > maxRecords) {
+          return `Error: ${userRole} role can only update up to ${maxRecords} record(s) at a time. This query matches ${count} records. Ask an ADMIN to perform bulk updates.`;
         }
       }
 
@@ -286,7 +287,7 @@ export async function executeDbTool(
     }
 
     case "delete_records": {
-      if (userRole !== "ADMIN") {
+      if (userRole !== "ADMIN" && userRole !== "SUPERADMIN") {
         return "Error: Only ADMIN can delete records.";
       }
       const modelName = resolveModel(input.table as string);

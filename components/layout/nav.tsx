@@ -221,20 +221,22 @@ function NavContent({
           {theme === "dark" ? "Light mode" : "Dark mode"}
         </button>
 
-        {/* Settings */}
-        <Link
-          href="/settings"
-          onClick={onNavigate}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-            pathname.startsWith("/settings")
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent"
-          )}
-        >
-          <Settings className="h-4 w-4" />
-          Settings
-        </Link>
+        {/* Settings — ADMIN only */}
+        {userRole === "ADMIN" && (
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              pathname.startsWith("/settings")
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </Link>
+        )}
 
         {/* Logout */}
         <button

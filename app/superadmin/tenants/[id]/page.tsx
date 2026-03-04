@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Key, CheckCircle2, Save, Loader2 } from "lucide-react";
 
 type HealthData = {
   lastActivity: string | null;
@@ -14,6 +14,12 @@ type HealthData = {
   emailAccountCount: number;
   cronJobCount: number;
   hasAiKeys: boolean;
+};
+
+type AiKeySlot = {
+  label: string;
+  token: string;
+  hasToken: boolean;
 };
 
 type TenantDetail = {
@@ -32,6 +38,7 @@ type TenantDetail = {
   users: { id: string; email: string; name: string; role: string; createdAt: string }[];
   _count: { events: number; customPages: number; snapshots: number };
   health: HealthData;
+  aiApiKeys: AiKeySlot[];
 };
 
 function timeAgo(dateStr: string): string {
@@ -65,6 +72,12 @@ export default function TenantDetailPage() {
     billingStatus: "trial",
     billingNote: "",
   });
+  const AI_SLOT_LABELS = ["Primary", "Backup 1", "Backup 2"];
+  const [aiKeys, setAiKeys] = useState<AiKeySlot[]>(
+    AI_SLOT_LABELS.map((l) => ({ label: l, token: "", hasToken: false }))
+  );
+  const [savingKeys, setSavingKeys] = useState(false);
+  const [keysSaved, setKeysSaved] = useState(false);
 
   useEffect(() => {
     fetch(`/api/superadmin/tenants/${id}`)
@@ -79,6 +92,13 @@ export default function TenantDetailPage() {
           billingStatus: data.billingStatus || "trial",
           billingNote: data.billingNote || "",
         });
+        if (data.aiApiKeys) {
+          setAiKeys(AI_SLOT_LABELS.map((defaultLabel, i) => ({
+            label: data.aiApiKeys[i]?.label || defaultLabel,
+            token: data.aiApiKeys[i]?.token || "",
+            hasToken: data.aiApiKeys[i]?.hasToken || false,
+          })));
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -92,6 +112,33 @@ export default function TenantDetailPage() {
       body: JSON.stringify(form),
     });
     setSaving(false);
+  }
+
+  async function handleSaveAiKeys() {
+    setSavingKeys(true);
+    setKeysSaved(false);
+    const res = await fetch(`/api/superadmin/tenants/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        aiApiKeys: aiKeys.map((k) => ({ label: k.label, token: k.token })),
+      }),
+    });
+    if (res.ok) {
+      setKeysSaved(true);
+      // Reload to get masked tokens
+      const reloadRes = await fetch(`/api/superadmin/tenants/${id}`);
+      const data = await reloadRes.json();
+      if (data.aiApiKeys) {
+        setAiKeys(AI_SLOT_LABELS.map((defaultLabel, i) => ({
+          label: data.aiApiKeys[i]?.label || defaultLabel,
+          token: data.aiApiKeys[i]?.token || "",
+          hasToken: data.aiApiKeys[i]?.hasToken || false,
+        })));
+      }
+      setTimeout(() => setKeysSaved(false), 3000);
+    }
+    setSavingKeys(false);
   }
 
   async function handleDeactivate() {
@@ -280,6 +327,63 @@ export default function TenantDetailPage() {
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm min-h-[80px] resize-y"
             placeholder="Internal billing notes..."
           />
+        </div>
+      </div>
+
+      {/* AI API Keys */}
+      <div className="space-y-4 mb-8">
+        <h2 className="text-lg font-semibold">AI API Keys</h2>
+        <p className="text-sm text-muted-foreground">
+          Manage API keys for this tenant. Primary key is used first, backups are used on failover.
+        </p>
+        <div className="space-y-3">
+          {aiKeys.map((key, i) => (
+            <div
+              key={i}
+              className={`rounded-lg border p-4 space-y-2 ${
+                i === 0 ? "border-primary/30 bg-primary/5" : "border-border"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Key className={`h-4 w-4 ${i === 0 ? "text-primary" : "text-muted-foreground"}`} />
+                <span className="text-sm font-medium">{AI_SLOT_LABELS[i]}</span>
+                {key.hasToken && <CheckCircle2 className="h-3.5 w-3.5 text-green-500 ml-auto" />}
+              </div>
+              <Input
+                placeholder="Label"
+                value={key.label}
+                onChange={(e) => {
+                  const next = [...aiKeys];
+                  next[i] = { ...next[i], label: e.target.value };
+                  setAiKeys(next);
+                }}
+                className="text-sm"
+              />
+              <Input
+                placeholder={key.hasToken ? "Token saved — enter new to change" : "API key or OAuth token"}
+                value={key.token}
+                onChange={(e) => {
+                  const next = [...aiKeys];
+                  next[i] = { ...next[i], token: e.target.value };
+                  setAiKeys(next);
+                }}
+                type="password"
+                className="text-sm font-mono"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSaveAiKeys} disabled={savingKeys} size="sm" className="gap-2">
+            {savingKeys ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save Keys
+          </Button>
+          {keysSaved && (
+            <span className="text-sm text-green-600 flex items-center gap-1">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Saved!
+            </span>
+          )}
         </div>
       </div>
 

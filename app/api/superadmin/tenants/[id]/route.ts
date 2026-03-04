@@ -58,8 +58,19 @@ export async function GET(
     ]);
 
   const extra = tenant.extra as Record<string, unknown> | null;
-  const aiKeys = extra?.aiApiKeys as unknown[] | undefined;
-  const hasAiKeys = !!(aiKeys && aiKeys.length > 0);
+  const aiKeys = (extra?.aiApiKeys as { label: string; token: string }[]) || [];
+  const hasAiKeys = aiKeys.some((k) => k.token?.trim());
+
+  // Mask tokens for display
+  const maskedAiKeys = aiKeys.map((k) => ({
+    label: k.label,
+    token: k.token
+      ? k.token.length > 14
+        ? k.token.slice(0, 10) + "..." + k.token.slice(-4)
+        : "****"
+      : "",
+    hasToken: !!k.token?.trim(),
+  }));
 
   const lastActivity = [lastEvent?.createdAt, lastMessage?.createdAt]
     .filter(Boolean)
@@ -67,6 +78,7 @@ export async function GET(
 
   return NextResponse.json({
     ...tenant,
+    aiApiKeys: maskedAiKeys,
     health: {
       lastActivity: lastActivity ? lastActivity.toISOString() : null,
       messageCount,
@@ -93,6 +105,26 @@ export async function PUT(
   const data: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (key in body) data[key] = body[key];
+  }
+
+  // Handle AI API keys update
+  if (body.aiApiKeys !== undefined) {
+    const tenant = await prisma.tenant.findUnique({
+      where: { id },
+      select: { extra: true },
+    });
+    const existingExtra = (tenant?.extra as Record<string, unknown>) || {};
+    const existingKeys = (existingExtra.aiApiKeys as { label: string; token: string }[]) || [];
+
+    // If a token contains "..." or "****", keep existing value
+    const mergedKeys = (body.aiApiKeys as { label: string; token: string }[]).map((k, i) => {
+      if (k.token.includes("...") || k.token === "****") {
+        return { label: k.label, token: existingKeys[i]?.token || "" };
+      }
+      return { label: k.label, token: k.token };
+    });
+
+    data.extra = { ...existingExtra, aiApiKeys: mergedKeys };
   }
 
   try {

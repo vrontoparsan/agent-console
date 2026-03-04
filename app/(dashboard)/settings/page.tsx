@@ -10,7 +10,6 @@ import {
   Mail,
   Wand2,
   HardDrive,
-  Key,
 } from "lucide-react";
 
 const settingsItems = [
@@ -64,13 +63,6 @@ const settingsItems = [
     roles: ["SUPERADMIN", "ADMIN"],
   },
   {
-    href: "/settings/ai-apis",
-    label: "AI APIs",
-    description: "API keys and tokens with automatic failover",
-    icon: Key,
-    roles: ["ADMIN"],
-  },
-  {
     href: "/settings/backup",
     label: "Snapshots",
     description: "Section snapshots with code and database restore",
@@ -83,6 +75,9 @@ export default async function SettingsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const role = session.user.role;
+
+  // Only ADMIN can access settings
+  if (role !== "ADMIN" && role !== "SUPERADMIN") redirect("/events");
 
   const visibleItems = settingsItems.filter((item) =>
     item.roles.includes(role)

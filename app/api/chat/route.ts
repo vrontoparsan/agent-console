@@ -125,9 +125,14 @@ export async function POST(req: NextRequest) {
     const schemaContext = await getSchemaContext(tenantId);
     const tools = [...getDbTools()];
 
-    const permissionInfo = userRole === "MANAGER"
-      ? `User role: MANAGER. Can query, create, and update up to 3 records. Cannot delete. Cannot bulk-edit more than 3 records.`
-      : `User role: ${userRole}. Full access to all database operations including delete and bulk updates.`;
+    let permissionInfo: string;
+    if (userRole === "EMPLOYEE") {
+      permissionInfo = "User role: EMPLOYEE. Can query data. Can create or update at most 1 record at a time. Cannot delete. Cannot execute SQL.";
+    } else if (userRole === "MANAGER") {
+      permissionInfo = "User role: MANAGER. Can query, create, and update up to 3 records. Cannot delete. Cannot bulk-edit more than 3 records. Cannot execute SQL.";
+    } else {
+      permissionInfo = `User role: ${userRole}. Full access to all database operations including delete and bulk updates.`;
+    }
 
     const systemPrompt = `${basePrompt}
 

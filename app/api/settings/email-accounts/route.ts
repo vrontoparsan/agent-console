@@ -15,7 +15,7 @@ export async function GET() {
   const ctx = await requireTenantAuth();
   if (isAuthError(ctx)) return ctx.error;
 
-  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json([], { status: 403 });
   }
 
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const ctx = await requireTenantAuth();
   if (isAuthError(ctx)) return ctx.error;
 
-  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -58,7 +58,7 @@ export async function PUT(req: NextRequest) {
   const ctx = await requireTenantAuth();
   if (isAuthError(ctx)) return ctx.error;
 
-  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -98,7 +98,7 @@ export async function DELETE(req: NextRequest) {
   const ctx = await requireTenantAuth();
   if (isAuthError(ctx)) return ctx.error;
 
-  if (!["ADMIN", "MANAGER"].includes(ctx.role)) {
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

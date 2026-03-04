@@ -11,7 +11,7 @@ type User = {
   id: string;
   email: string;
   name: string;
-  role: "SUPERADMIN" | "ADMIN" | "MANAGER";
+  role: "SUPERADMIN" | "ADMIN" | "MANAGER" | "EMPLOYEE";
   categoryIds: string[];
   emailAccountIds: string[];
   pageIds: string[];
@@ -78,6 +78,7 @@ export default function UsersPage() {
     SUPERADMIN: "default",
     ADMIN: "secondary",
     MANAGER: "outline",
+    EMPLOYEE: "outline",
   };
 
   if (editing) {
@@ -111,7 +112,7 @@ export default function UsersPage() {
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-muted-foreground">Role</label>
             <div className="flex gap-2">
-              {(["SUPERADMIN", "ADMIN", "MANAGER"] as const).map((r) => (
+              {(["SUPERADMIN", "ADMIN", "MANAGER", "EMPLOYEE"] as const).map((r) => (
                 <button
                   key={r}
                   onClick={() => setEditing({ ...editing, role: r })}
@@ -157,22 +158,32 @@ export default function UsersPage() {
               <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
                 <li>Can view and create records via chat</li>
                 <li>Can edit up to 3 records at a time via chat</li>
-                <li>Cannot delete records</li>
-                <li>Cannot bulk-edit more than 3 records</li>
+                <li>Cannot delete records or execute SQL</li>
+                <li>No access to Settings</li>
+                <li>Event visibility restricted by categories and email accounts below</li>
+                <li>Custom page access restricted to assigned pages below</li>
+              </ul>
+            )}
+            {editing.role === "EMPLOYEE" && (
+              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                <li>Can query data and chat with the assistant</li>
+                <li>Can create or update at most 1 record at a time via chat</li>
+                <li>Cannot delete records or execute SQL</li>
+                <li>No access to Settings or Data browser</li>
                 <li>Event visibility restricted by categories and email accounts below</li>
                 <li>Custom page access restricted to assigned pages below</li>
               </ul>
             )}
           </div>
 
-          {/* Permissions — only for MANAGER role */}
-          {editing.role === "MANAGER" ? (
+          {/* Permissions — for MANAGER and EMPLOYEE roles */}
+          {(editing.role === "MANAGER" || editing.role === "EMPLOYEE") ? (
             <div className="space-y-4 rounded-xl border border-border p-4">
               <p className="text-sm font-medium text-muted-foreground">
                 Event Visibility
               </p>
               <p className="text-xs text-muted-foreground">
-                Manager will only see events matching selected categories or email accounts.
+                {editing.role} will only see events matching selected categories or email accounts.
               </p>
 
               {categories.length > 0 && (
@@ -278,7 +289,7 @@ export default function UsersPage() {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground italic">
-              {editing.role} sees all events and custom pages — permissions apply to MANAGER role only.
+              {editing.role} sees all events and custom pages — access restrictions apply to MANAGER and EMPLOYEE roles.
             </p>
           )}
 
