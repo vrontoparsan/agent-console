@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Zap, Building2 } from "lucide-react";
+import { Zap, Building2, Database } from "lucide-react";
 import { LogoutButton } from "@/components/superadmin/logout-button";
 
 export default async function SuperadminLayout({
@@ -33,6 +33,13 @@ export default async function SuperadminLayout({
           >
             <Building2 className="h-4 w-4" />
             Tenants
+          </Link>
+          <Link
+            href="/superadmin/database"
+            className="flex items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+          >
+            <Database className="h-4 w-4" />
+            Database
           </Link>
         </nav>
         <div className="p-3 border-t border-border text-xs text-muted-foreground flex items-center justify-between">
