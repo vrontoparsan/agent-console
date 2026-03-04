@@ -127,52 +127,102 @@ export default function UsersPage() {
           </div>
 
           {/* Role capabilities info */}
-          <div className="rounded-xl border border-border p-4 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Role permissions</p>
+          <div className="rounded-xl border border-border p-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              {editing.role} — permissions
+            </p>
             {editing.role === "SUPERADMIN" && (
-              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Full access to all features</li>
-                <li>Access to Data browser</li>
-                <li>Can create new sections and DB tables via Chat (agentic mode)</li>
-                <li>Can upload files in Chat and import data into database</li>
-                <li>Can execute raw SQL on custom tables</li>
-                <li>Can delete database records via chat</li>
-                <li>Can bulk-edit unlimited records via chat</li>
-                <li>Can configure UI pages via UI Agent</li>
-                <li>Sees all custom pages</li>
-                <li>Access to Snapshots with restore and download</li>
-              </ul>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Navigation</p>
+                  <p className="text-xs text-muted-foreground">Events, Data, Chat, Settings, all Pages — full access</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Chat & DB</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Query, create, update, delete — unlimited</li>
+                    <li>Execute raw SQL on custom tables</li>
+                    <li>Upload files and import data</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">UI & Sections</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Create and configure pages via UI Agent</li>
+                    <li>Snapshots — create, restore, and download</li>
+                  </ul>
+                </div>
+              </div>
             )}
             {editing.role === "ADMIN" && (
-              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Access to all events and settings</li>
-                <li>Can upload files in Chat and import data into database</li>
-                <li>Can delete database records via chat</li>
-                <li>Can bulk-edit unlimited records via chat</li>
-                <li>Can configure UI pages via UI Agent</li>
-                <li>Sees all custom pages</li>
-                <li>Access to Snapshots (view and create, no restore or download)</li>
-              </ul>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Navigation</p>
+                  <p className="text-xs text-muted-foreground">Events, Data, Chat, Settings, all Pages — full access</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Settings</p>
+                  <p className="text-xs text-muted-foreground">Company, Agent contexts, Event categories, Cron jobs, Users, Email accounts, Sections, Snapshots</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Chat & DB</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Query, create, update, delete — unlimited</li>
+                    <li>Upload files and import data</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">UI & Sections</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Create and configure pages via UI Agent</li>
+                    <li>Snapshots — view and create (no restore/download)</li>
+                  </ul>
+                </div>
+              </div>
             )}
             {editing.role === "MANAGER" && (
-              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Can view and create records via chat</li>
-                <li>Can edit up to 3 records at a time via chat</li>
-                <li>Cannot delete records or execute SQL</li>
-                <li>No access to Settings</li>
-                <li>Event visibility restricted by categories and email accounts below</li>
-                <li>Custom page access restricted to assigned pages below</li>
-              </ul>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Navigation</p>
+                  <p className="text-xs text-muted-foreground">Events, Chat, assigned Pages only. No Settings, no Data browser.</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Chat & DB</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Query data — unlimited</li>
+                    <li>Create records — unlimited</li>
+                    <li>Update — max 3 records at a time</li>
+                    <li>Delete — not allowed</li>
+                    <li>SQL — not allowed</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Events & Pages</p>
+                  <p className="text-xs text-muted-foreground">Restricted to assigned categories, email accounts, and pages (configure below)</p>
+                </div>
+              </div>
             )}
             {editing.role === "EMPLOYEE" && (
-              <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Can query data and chat with the assistant</li>
-                <li>Can create or update at most 1 record at a time via chat</li>
-                <li>Cannot delete records or execute SQL</li>
-                <li>No access to Settings or Data browser</li>
-                <li>Event visibility restricted by categories and email accounts below</li>
-                <li>Custom page access restricted to assigned pages below</li>
-              </ul>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Navigation</p>
+                  <p className="text-xs text-muted-foreground">Events, Chat, assigned Pages only. No Settings, no Data browser.</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Chat & DB</p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+                    <li>Query data — unlimited</li>
+                    <li>Create — max 1 record at a time</li>
+                    <li>Update — max 1 record at a time</li>
+                    <li>Delete — not allowed</li>
+                    <li>SQL — not allowed</li>
+                  </ul>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-foreground mb-1">Events & Pages</p>
+                  <p className="text-xs text-muted-foreground">Restricted to assigned categories, email accounts, and pages (configure below)</p>
+                </div>
+              </div>
             )}
           </div>
 

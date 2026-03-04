@@ -2,7 +2,7 @@
 
 > **This document is for AI assistants, not humans.** It provides comprehensive context for any AI working on this codebase. **You MUST update this document when you make significant changes** (new features, schema changes, new API routes, architectural decisions).
 
-Last updated: 2026-03-03
+Last updated: 2026-03-04
 
 ---
 
@@ -14,7 +14,7 @@ Agent Bizi is a **multi-tenant SaaS business management platform** built as a **
 - Full-stack TypeScript app (Next.js 15 App Router + Prisma 6 + PostgreSQL)
 - **Multi-tenant**: schema-per-tenant for custom tables, row-level isolation on shared Prisma tables
 - AI-powered with Anthropic Claude (Sonnet 4.6) via OAuth
-- Role-based access control (SUPERADMIN = platform admin, ADMIN = tenant admin, MANAGER = restricted user)
+- Role-based access control (SUPERADMIN = platform admin, ADMIN = tenant admin, MANAGER = restricted user, EMPLOYEE = most restricted user) — 4 roles in Role enum
 - Custom section system ("Instance Pages") where AI generates runtime-compiled React JSX
 - Self-service signup with automatic tenant provisioning
 - Email integration (IMAP polling + SMTP sending)
@@ -56,7 +56,7 @@ app/
     instance/email/       # Instance email sending
     pages/route.ts        # Custom pages list + create + delete + reorder (PATCH)
     pages/categories/     # Section categories CRUD + reorder
-    settings/             # All settings endpoints (incl. ai-apis for API key management)
+    settings/             # All settings endpoints (ADMIN only, no AI APIs — moved to superadmin)
     superadmin/tenants/   # Tenant CRUD (SUPERADMIN only)
     superadmin/impersonate/[tenantId]/ # Generate signed JWT for tenant impersonation
     auth/impersonate-callback/ # Validate impersonation JWT, set session cookie
@@ -70,15 +70,15 @@ app/
     chat/                 # General chat
     data/                 # Data browser
     p/[slug]/             # Dynamic custom pages
-    settings/             # All settings pages
+    settings/             # All settings pages (ADMIN only, MANAGER/EMPLOYEE redirected to /events)
       sections/           # Manage sections (DnD tree, categories, admin toggle)
   superadmin/             # Platform admin panel (SUPERADMIN only)
-    page.tsx              # Tenant list + stats + health + billing + impersonation
+    page.tsx              # Tenant list + stats + health + billing + impersonation + AI keys management (3 failover slots per tenant)
     layout.tsx            # Superadmin layout
 
 components/
   ui/                     # shadcn/ui primitives (Button, Input, Badge, Card, etc.)
-  layout/nav.tsx          # Sidebar navigation (role-aware)
+  layout/nav.tsx          # Sidebar navigation (role-aware, hides Settings for MANAGER/EMPLOYEE)
   layout/impersonation-banner.tsx  # Amber banner for impersonation sessions
   superadmin/logout-button.tsx     # Logout button for superadmin sidebar
   events/                 # Event components
@@ -131,7 +131,7 @@ Dockerfile                # Multi-stage Docker build
 
 **Tenant** — name, slug (unique), plan, active, company fields (companyName, ico, dic, icDph, address, email, phone, web), billingStatus (String, default "trial" — trial/active/overdue/cancelled), billingNote (String, default ""), extra (JSON: aiApiKeys, allowAdminUIAgent, emailSettings). **Absorbs the old CompanyInfo fields.** All tenant-scoped models have a `tenantId` FK pointing here.
 
-**User** — email, name, password (bcrypt), role (SUPERADMIN/ADMIN/MANAGER), tenantId? (null for SUPERADMIN). Unique constraint: `@@unique([email, tenantId])` — same email can exist in different tenants.
+**User** — email, name, password (bcrypt), role (SUPERADMIN/ADMIN/MANAGER/EMPLOYEE), tenantId? (null for SUPERADMIN). Unique constraint: `@@unique([email, tenantId])` — same email can exist in different tenants.
 
 **Event** — title, summary, rawContent, source, type (PLUS/MINUS), status (NEW/IN_PROGRESS/RESOLVED/ARCHIVED), priority, categoryId, assignedTo, emailAccountId, senderEmail, metadata, tenantId
 
@@ -153,7 +153,7 @@ Dockerfile                # Multi-stage Docker build
 
 **CronJob** — name, schedule, action, enabled, lastRun, nextRun, tenantId
 
-**Access tables** — UserCategoryAccess, UserEmailAccountAccess, UserPageAccess (junction tables for MANAGER permissions)
+**Access tables** — UserCategoryAccess, UserEmailAccountAccess, UserPageAccess (junction tables for MANAGER and EMPLOYEE permissions)
 
 ---
 
@@ -209,10 +209,11 @@ Agent Bizi uses a **hybrid isolation** model:
 2. **Platform** — `/superadmin/*`, `/api/superadmin/*` — SUPERADMIN only. Non-SUPERADMIN redirected to `/events`.
 3. **Tenant** — everything else — requires authentication + tenantId in session.
 
-### Roles
-- **SUPERADMIN** — platform-level admin. `tenantId: null`. Manages tenants via `/superadmin`. No tenant data access (no tenantId in session).
-- **ADMIN** — tenant admin. Full access within their tenant: agentic chat with DB tools, page management, UI Agent access, settings.
-- **MANAGER** — restricted user within tenant: only sees assigned categories/email accounts/pages, agentic chat with DB tools (max 3 record updates, no delete)
+### Roles (4 roles in Role enum)
+- **SUPERADMIN** — platform-level admin. `tenantId: null`. Manages tenants via `/superadmin`. No tenant data access (no tenantId in session). Also manages AI API keys per tenant from superadmin tenant detail page.
+- **ADMIN** — tenant admin. Full access within their tenant: agentic chat with DB tools, page management, UI Agent access, settings (sections, email accounts, cron jobs, event categories, backup, company info). **Only role with settings access** (`/settings` redirects others to `/events`).
+- **MANAGER** — restricted user within tenant: only sees assigned categories/email accounts/pages, agentic chat with DB tools (max 3 record updates, no delete). No settings access (redirected to `/events`). Settings nav link hidden. **Cannot manage** email accounts, cron jobs, or event categories (ADMIN only).
+- **EMPLOYEE** — most restricted user within tenant: same category/email account/page filtering as MANAGER (assigned only). Can query data and create/update 1 record at a time via chat. No delete, no SQL, no settings access, no data browser. Settings nav link hidden.
 
 ### Signup Flow
 1. User fills `/signup` form (company name, email, password)
@@ -227,6 +228,7 @@ Platform administration for SUPERADMIN users. Accessible at `/superadmin` with d
 - **Platform statistics dashboard** — Total tenants, active tenants, total users, total events, total custom pages. Displayed as stat cards at the top.
 - **Tenant list with health monitoring** — Per-tenant health info: last activity timestamp, message/snapshot/email/cron counts, AI key status (configured or not).
 - **Billing management** — Per-tenant `billingStatus` field (trial/active/overdue/cancelled) and `billingNote` text field. Editable inline via `PATCH /api/superadmin/tenants`.
+- **AI API keys management** — Per-tenant AI keys section in superadmin tenant detail page with 3 failover slots (primary + 2 backups). Managed exclusively by SUPERADMIN (not accessible to tenant ADMIN). Stored in `Tenant.extra.aiApiKeys`.
 - **Tenant impersonation** — "Impersonate" button opens tenant dashboard in a new tab. Flow:
   1. `POST /api/superadmin/impersonate/[tenantId]` — SUPERADMIN-only, generates a short-lived signed JWT containing `tenantId`, `adminUserId`, `impersonatorId`
   2. `GET /api/auth/impersonate-callback?token=...` — validates JWT, looks up admin user for the tenant, sets NextAuth session cookie with `isImpersonating: true` flag
@@ -250,7 +252,7 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 - **Key type detection**: Tokens starting with `sk-ant-oat` → OAuth token (`authToken` + `anthropic-beta: oauth-2025-04-20` header); all other tokens → API key (`apiKey`). Important: both OAuth and API keys share the `sk-ant-` prefix, so must check for `sk-ant-oat` specifically.
 - **Failover**: `withFailover()` helper in `claude.ts` catches 401/403 errors and rotates to next configured key (up to 3 attempts)
 - **Cache TTL**: 60s per tenant (globalThis singleton survives hot-reloads)
-- **Management**: Settings → AI APIs (ADMIN only within tenant) — 3 key slots: primary + 2 backups
+- **Management**: Superadmin tenant detail page — AI keys section with 3 failover slots (primary + 2 backups). Managed exclusively by SUPERADMIN, not accessible to tenant ADMIN or any tenant users. Deleted files: `app/(dashboard)/settings/ai-apis/page.tsx`, `app/api/settings/ai-apis/route.ts`.
 - **API**: `getAnthropicClient(tenantId?)`, `failoverToNextKey(tenantId?)`, `invalidateKeyCache(tenantId?)`
 
 ---
@@ -300,7 +302,7 @@ All Anthropic API calls go through a centralized client module (`lib/anthropic.t
 
 ### Two Chat Contexts
 
-1. **Main Chat** (`/api/chat`) — general business data assistant. Agentic mode with DB tools for ALL roles (query, create, update, delete). Role-based permissions: MANAGER limited to 3 records, no delete; ADMIN/SUPERADMIN full access. No page/SQL tools. History: 80 messages. Persistent via Message model with eventId.
+1. **Main Chat** (`/api/chat`) — general business data assistant. Agentic mode with DB tools for ALL roles (query, create, update, delete). Role-based permissions: EMPLOYEE limited to 1 record create/update, no delete, no SQL; MANAGER limited to 3 records, no delete; ADMIN/SUPERADMIN full access. No page/SQL tools. History: 80 messages. Persistent via Message model with eventId.
 2. **UI Chat** (`/api/ui-chat`) — UI Agent (SUPERADMIN only) and page-editor, persistent via Message model with customPageId, threaded per section. Has full tool suite: DB + Page + Instance Page + SQL (SUPERADMIN). Supports file attachments (PDF, CSV, XLSX, XML, images) and image vision via multi-content messages. **Page-editor context**: when editing an existing page, `create_instance_page` tool is removed — agent must use `update_instance_page_code`. The `update_instance_page_code` tool supports `published` parameter. System prompt explicitly forbids creating new pages in page-editor context. After DB schema changes, agent must check cross-section impact.
 
 ### Background Processing (`/api/ui-chat`)
@@ -522,8 +524,7 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 | Sidebar navigation | `components/layout/nav.tsx` |
 | AgentChat component | `components/custom-page/agent-chat.tsx` |
 | Manage sections (DnD) | `app/(dashboard)/settings/sections/page.tsx` |
-| AI APIs settings | `app/(dashboard)/settings/ai-apis/page.tsx` |
-| AI APIs API | `app/api/settings/ai-apis/route.ts` |
+| AI APIs settings | ~~DELETED~~ (moved to superadmin tenant detail page) |
 | Snapshot service | `lib/snapshots.ts` |
 | Snapshot API | `app/api/settings/snapshots/route.ts` |
 | Snapshot restore API | `app/api/settings/snapshots/[id]/restore/route.ts` |
@@ -536,7 +537,7 @@ Instance pages and custom database tables are versioned via snapshots. The UI Ag
 
 ---
 
-## Recent Changes (2026-03-03)
+## Changes (2026-03-03)
 
 ### Multi-Tenant SaaS Conversion (MAJOR)
 Converted from single-tenant "Agent Console" to multi-tenant SaaS "Agent Bizi". Key changes:
@@ -545,7 +546,7 @@ Converted from single-tenant "Agent Console" to multi-tenant SaaS "Agent Bizi". 
 - **`requireTenantAuth()`** standard API guard returns `{session, tenantId, tenantSchema, db, role}` (lib/api-utils.ts)
 - **Per-tenant PostgreSQL schemas** (`tenant_{id}`) replace the single `instance` schema for custom tables
 - **Auth**: `tenantId` stored in JWT, propagated to session. `User.email` unique per tenant, not globally.
-- **Roles**: SUPERADMIN = platform admin (tenantId: null), ADMIN = tenant admin (full access), MANAGER = restricted user
+- **Roles**: SUPERADMIN = platform admin (tenantId: null), ADMIN = tenant admin (full access), MANAGER = restricted user, EMPLOYEE = most restricted user
 - **New routes**: `/` landing page, `/signup`, `/superadmin`, `/api/auth/signup`, `/api/superadmin/tenants`
 - **Middleware zones**: Public (/, /login, /signup), Platform (/superadmin/*), Tenant (everything else)
 - **AI keys**: Per-tenant key caching from `Tenant.extra.aiApiKeys` in `lib/anthropic.ts`
@@ -588,3 +589,16 @@ All Slovak text in `settings/sections/page.tsx` and `settings/page.tsx` translat
 - **Billing management** — new `billingStatus` (trial/active/overdue/cancelled) and `billingNote` fields on Tenant model, editable via PATCH `/api/superadmin/tenants`
 - **Tenant health monitoring** — per-tenant last activity, message/snapshot/email/cron counts, AI key configuration status
 - **Tenant impersonation** — SUPERADMIN can open any tenant's dashboard in a new tab. `POST /api/superadmin/impersonate/[tenantId]` generates signed JWT, `GET /api/auth/impersonate-callback` validates and sets session with `isImpersonating` flag, amber banner shown in dashboard layout (`components/layout/impersonation-banner.tsx`). New NextAuth session fields: `isImpersonating?: boolean` on JWT and `Session.user`.
+
+## Recent Changes (2026-03-04)
+
+### Role & Permission Refinements
+- **4-role enum**: Role enum now has SUPERADMIN, ADMIN, MANAGER, EMPLOYEE.
+- **EMPLOYEE role**: Can query data + create/update 1 record at a time via chat. No delete, no SQL, no settings access, no data browser. Events/pages filtered by assigned categories/email accounts/pages (same filtering as MANAGER).
+- **MANAGER restrictions tightened**: Cannot manage email accounts, cron jobs, or event categories (ADMIN only). No settings access (redirected to `/events`). Settings nav link hidden.
+- **Settings access**: Only ADMIN can access `/settings` page. MANAGER and EMPLOYEE are redirected to `/events`. Settings nav link hidden for both MANAGER and EMPLOYEE.
+
+### AI API Keys Moved to Superadmin
+- **AI API keys management** moved from tenant ADMIN settings page to superadmin tenant detail page.
+- Superadmin tenant detail now has AI keys section with 3 failover slots (primary + 2 backups).
+- **Deleted files**: `app/(dashboard)/settings/ai-apis/page.tsx`, `app/api/settings/ai-apis/route.ts` — no longer needed as management is superadmin-only.
