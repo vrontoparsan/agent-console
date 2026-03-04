@@ -102,6 +102,8 @@ export default function TenantDetailPage() {
 
   async function handleImpersonate() {
     setImpersonating(true);
+    // Open window synchronously in click handler to avoid popup blocker
+    const newWindow = window.open("about:blank", "_blank");
     try {
       const res = await fetch("/api/superadmin/impersonate", {
         method: "POST",
@@ -109,11 +111,13 @@ export default function TenantDetailPage() {
         body: JSON.stringify({ tenantId: id }),
       });
       const data = await res.json();
-      if (data.url) {
-        window.open(data.url, "_blank");
+      if (data.url && newWindow) {
+        newWindow.location.href = data.url;
+      } else {
+        newWindow?.close();
       }
     } catch {
-      // ignore
+      newWindow?.close();
     }
     setImpersonating(false);
   }
