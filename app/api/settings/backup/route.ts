@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import { prisma } from "@/lib/prisma";
+import { getTenantSchema } from "@/lib/prisma-tenant";
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
@@ -55,7 +56,7 @@ export async function GET() {
   try {
     if (fs.existsSync(backupDir)) {
       const files = fs.readdirSync(backupDir)
-        .filter((f) => f.endsWith(".sql.gz") || f.endsWith(".sql"))
+        .filter((f) => f.endsWith(".sql.gz") || f.endsWith(".sql") || f.endsWith(".json.gz"))
         .sort()
         .reverse();
 
@@ -98,6 +99,84 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/**
+ * Exports all shared-table data for a single tenant as JSON.
+ * Excludes sensitive fields (passwords, SMTP credentials).
+ */
+async function exportTenantData(tenantId: string) {
+  const db = await import("@/lib/prisma-tenant").then((m) => m.tenantPrisma(tenantId));
+
+  const [
+    tenant,
+    users,
+    events,
+    eventCategories,
+    emailAccounts,
+    eventActions,
+    messages,
+    agentContexts,
+    sectionCategories,
+    customPages,
+    cronJobs,
+    snapshots,
+  ] = await Promise.all([
+    prisma.tenant.findUnique({ where: { id: tenantId } }),
+    db.user.findMany({
+      select: { id: true, email: true, name: true, role: true, tenantId: true, createdAt: true, updatedAt: true },
+    }),
+    db.event.findMany(),
+    db.eventCategory.findMany(),
+    db.emailAccount.findMany({
+      select: {
+        id: true, label: true, email: true,
+        imapHost: true, imapPort: true, imapUser: true, imapTls: true,
+        smtpHost: true, smtpPort: true, smtpUser: true, smtpTls: true,
+        enabled: true, lastPolledAt: true, lastError: true, tenantId: true,
+        createdAt: true, updatedAt: true,
+      },
+    }),
+    db.eventAction.findMany(),
+    db.message.findMany(),
+    db.agentContext.findMany(),
+    db.sectionCategory.findMany(),
+    db.customPage.findMany(),
+    db.cronJob.findMany(),
+    db.snapshot.findMany({
+      select: {
+        id: true, label: true, parentId: true, customPageId: true,
+        codeState: true, schemaDdl: true, dataHash: true, dataSize: true,
+        isCurrent: true, tenantId: true, createdAt: true,
+      },
+    }),
+  ]);
+
+  // Junction tables — query through user IDs
+  const userIds = users.map((u) => u.id);
+  const [userCategoryAccess, userEmailAccountAccess, userPageAccess] = await Promise.all([
+    prisma.userCategoryAccess.findMany({ where: { userId: { in: userIds } } }),
+    prisma.userEmailAccountAccess.findMany({ where: { userId: { in: userIds } } }),
+    prisma.userPageAccess.findMany({ where: { userId: { in: userIds } } }),
+  ]);
+
+  return {
+    tenant,
+    users,
+    events,
+    eventCategories,
+    emailAccounts,
+    eventActions,
+    messages,
+    agentContexts,
+    sectionCategories,
+    customPages,
+    cronJobs,
+    snapshots,
+    userCategoryAccess,
+    userEmailAccountAccess,
+    userPageAccess,
+  };
+}
+
 // POST: Trigger backup now
 export async function POST(req: NextRequest) {
   const ctx = await requireTenantAuth();
@@ -108,6 +187,7 @@ export async function POST(req: NextRequest) {
   }
 
   const backupDir = getBackupDir(ctx.tenantId);
+  const tenantSchema = getTenantSchema(ctx.tenantId);
 
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) {
@@ -115,23 +195,47 @@ export async function POST(req: NextRequest) {
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const filename = `backup-${timestamp}.sql.gz`;
+  const filename = `backup-${timestamp}.json.gz`;
   const filepath = path.join(backupDir, filename);
 
   try {
     // Ensure backup directory exists
     fs.mkdirSync(backupDir, { recursive: true });
 
-    // Run pg_dump with gzip
-    await execAsync(`pg_dump "${dbUrl}" | gzip > "${filepath}"`, {
-      timeout: 120000,
-    });
+    // 1. Dump tenant custom schema (DDL + data) via pg_dump
+    let tenantSchemaSql = "";
+    try {
+      const { stdout } = await execAsync(
+        `pg_dump "${dbUrl}" --schema="${tenantSchema}" --no-owner --no-privileges 2>/dev/null`,
+        { timeout: 60_000 }
+      );
+      tenantSchemaSql = stdout || "";
+    } catch {
+      // Tenant schema may not exist yet
+    }
+
+    // 2. Export shared table data scoped to this tenant
+    const sharedData = await exportTenantData(ctx.tenantId);
+
+    // 3. Combine into single JSON structure and gzip
+    const backup = {
+      version: 2,
+      tenantId: ctx.tenantId,
+      createdAt: new Date().toISOString(),
+      tenantSchema: tenantSchemaSql,
+      data: sharedData,
+    };
+
+    const tempJson = path.join(backupDir, `_temp_${Date.now()}.json`);
+    fs.writeFileSync(tempJson, JSON.stringify(backup), "utf-8");
+    await execAsync(`gzip -c "${tempJson}" > "${filepath}"`, { timeout: 30_000 });
+    fs.unlinkSync(tempJson);
 
     const stat = fs.statSync(filepath);
 
-    // Clean up old backups
+    // Clean up old backups (both old .sql.gz and new .json.gz)
     const files = fs.readdirSync(backupDir)
-      .filter((f) => f.startsWith("backup-") && f.endsWith(".sql.gz"))
+      .filter((f) => f.startsWith("backup-") && (f.endsWith(".sql.gz") || f.endsWith(".json.gz")))
       .sort()
       .reverse();
 
@@ -173,7 +277,7 @@ export async function POST(req: NextRequest) {
             await transport.sendMail({
               from: account.email,
               to: toEmail,
-              subject: `Agent Console DB Backup - ${timestamp}`,
+              subject: `Agent Bizi Backup - ${timestamp}`,
               text: `Database backup created at ${new Date().toLocaleString("sk-SK")}.\n\nSize: ${(stat.size / 1024).toFixed(1)} KB`,
               attachments: [
                 {

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireTenantAuth, isAuthError } from "@/lib/api-utils";
 import * as fs from "fs";
 import * as path from "path";
 
-const BACKUP_DIR = "/data/backups";
-
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user || session.user.role !== "SUPERADMIN") {
+  const ctx = await requireTenantAuth();
+  if (isAuthError(ctx)) return ctx.error;
+
+  if (ctx.role !== "ADMIN") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -18,7 +18,8 @@ export async function GET(req: NextRequest) {
 
   // Prevent path traversal
   const safeName = path.basename(name);
-  const filepath = path.join(BACKUP_DIR, safeName);
+  const backupDir = `/data/tenants/${ctx.tenantId}/backups`;
+  const filepath = path.join(backupDir, safeName);
 
   if (!fs.existsSync(filepath)) {
     return NextResponse.json({ error: "Backup not found" }, { status: 404 });
