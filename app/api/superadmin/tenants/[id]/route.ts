@@ -118,21 +118,29 @@ export async function POST(
 
   const { id } = await params;
 
-  const adminUser = await prisma.user.findFirst({
+  // Find best user: ADMIN first, then MANAGER, then any
+  let targetUser = await prisma.user.findFirst({
     where: { tenantId: id, role: "ADMIN" },
     select: { id: true, email: true, name: true, role: true, tenantId: true },
   });
+  if (!targetUser) {
+    targetUser = await prisma.user.findFirst({
+      where: { tenantId: id },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, email: true, name: true, role: true, tenantId: true },
+    });
+  }
 
-  if (!adminUser) {
-    return NextResponse.json({ error: "No admin user found for this tenant" }, { status: 404 });
+  if (!targetUser) {
+    return NextResponse.json({ error: "No user found for this tenant" }, { status: 404 });
   }
 
   const token = await new SignJWT({
-    userId: adminUser.id,
-    email: adminUser.email,
-    name: adminUser.name,
-    role: adminUser.role,
-    tenantId: adminUser.tenantId,
+    userId: targetUser.id,
+    email: targetUser.email,
+    name: targetUser.name,
+    role: targetUser.role,
+    tenantId: targetUser.tenantId,
     impersonatedBy: session.user.id,
   })
     .setProtectedHeader({ alg: "HS256" })
