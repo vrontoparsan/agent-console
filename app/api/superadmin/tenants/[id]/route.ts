@@ -118,29 +118,31 @@ export async function POST(
 
   const { id } = await params;
 
-  // Find best user: ADMIN first, then MANAGER, then any
-  let targetUser = await prisma.user.findFirst({
+  // Find tenant's user (ADMIN preferred), or use superadmin's own identity
+  const tenantUser = await prisma.user.findFirst({
     where: { tenantId: id, role: "ADMIN" },
     select: { id: true, email: true, name: true, role: true, tenantId: true },
+  }) || await prisma.user.findFirst({
+    where: { tenantId: id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, email: true, name: true, role: true, tenantId: true },
   });
-  if (!targetUser) {
-    targetUser = await prisma.user.findFirst({
-      where: { tenantId: id },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, email: true, name: true, role: true, tenantId: true },
-    });
-  }
 
-  if (!targetUser) {
-    return NextResponse.json({ error: "No user found for this tenant" }, { status: 404 });
-  }
+  // If no user exists, superadmin enters as ADMIN with their own identity
+  const impersonateAs = tenantUser || {
+    id: session.user.id,
+    email: session.user.email,
+    name: session.user.name || "Superadmin",
+    role: "ADMIN",
+    tenantId: id,
+  };
 
   const token = await new SignJWT({
-    userId: targetUser.id,
-    email: targetUser.email,
-    name: targetUser.name,
-    role: targetUser.role,
-    tenantId: targetUser.tenantId,
+    userId: impersonateAs.id,
+    email: impersonateAs.email,
+    name: impersonateAs.name,
+    role: impersonateAs.role,
+    tenantId: impersonateAs.tenantId,
     impersonatedBy: session.user.id,
   })
     .setProtectedHeader({ alg: "HS256" })
