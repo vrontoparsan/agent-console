@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { SignJWT } from "jose";
 
 async function requireSuperadmin() {
   const session = await auth();
@@ -103,6 +104,44 @@ export async function PUT(
   } catch {
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
+}
+
+// POST: Impersonate — generate signed URL to log in as tenant's admin
+const impersonateSecret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || "secret");
+
+export async function POST(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await requireSuperadmin();
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { id } = await params;
+
+  const adminUser = await prisma.user.findFirst({
+    where: { tenantId: id, role: "ADMIN" },
+    select: { id: true, email: true, name: true, role: true, tenantId: true },
+  });
+
+  if (!adminUser) {
+    return NextResponse.json({ error: "No admin user found for this tenant" }, { status: 404 });
+  }
+
+  const token = await new SignJWT({
+    userId: adminUser.id,
+    email: adminUser.email,
+    name: adminUser.name,
+    role: adminUser.role,
+    tenantId: adminUser.tenantId,
+    impersonatedBy: session.user.id,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("60s")
+    .sign(impersonateSecret);
+
+  return NextResponse.json({
+    url: `/api/auth/impersonate-callback?token=${token}`,
+  });
 }
 
 // DELETE: Soft-delete (deactivate) tenant

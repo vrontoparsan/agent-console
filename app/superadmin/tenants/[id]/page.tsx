@@ -105,10 +105,8 @@ export default function TenantDetailPage() {
     // Open window synchronously in click handler to avoid popup blocker
     const newWindow = window.open("about:blank", "_blank");
     try {
-      const res = await fetch("/api/superadmin/impersonate", {
+      const res = await fetch(`/api/superadmin/tenants/${id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId: id }),
       });
       const data = await res.json();
       if (data.url && newWindow) {
