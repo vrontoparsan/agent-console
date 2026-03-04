@@ -108,14 +108,32 @@ export default function TenantDetailPage() {
       const res = await fetch(`/api/superadmin/tenants/${id}`, {
         method: "POST",
       });
-      const data = await res.json();
+      const text = await res.text();
+      console.log("Impersonate response:", res.status, text);
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.error("Impersonate: not JSON:", text.slice(0, 200));
+        if (newWindow) {
+          newWindow.document.write(`<pre>Error: ${res.status}\n${text.slice(0, 500)}</pre>`);
+        }
+        setImpersonating(false);
+        return;
+      }
       if (data.url && newWindow) {
         newWindow.location.href = data.url;
       } else {
-        newWindow?.close();
+        console.error("Impersonate: no url in response:", data);
+        if (newWindow) {
+          newWindow.document.write(`<pre>Error: ${JSON.stringify(data, null, 2)}</pre>`);
+        }
       }
-    } catch {
-      newWindow?.close();
+    } catch (err) {
+      console.error("Impersonate fetch error:", err);
+      if (newWindow) {
+        newWindow.document.write(`<pre>Fetch error: ${err}</pre>`);
+      }
     }
     setImpersonating(false);
   }
