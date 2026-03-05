@@ -35,7 +35,11 @@ export async function GET(req: NextRequest) {
       salt: cookieName,
     });
 
-    const response = NextResponse.redirect(new URL("/events", req.url));
+    // Build redirect URL from forwarded headers (Railway proxies via 0.0.0.0)
+    const proto = req.headers.get("x-forwarded-proto") || (isSecure ? "https" : "http");
+    const host = req.headers.get("host") || req.nextUrl.host;
+    const redirectUrl = `${proto}://${host}/events`;
+    const response = NextResponse.redirect(redirectUrl);
     response.cookies.set(cookieName, sessionToken, {
       httpOnly: true,
       secure: isSecure,
