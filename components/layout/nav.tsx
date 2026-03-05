@@ -148,10 +148,12 @@ function NavContent({
   onNavigate,
   userRole,
   customPages,
+  brandName,
 }: {
   onNavigate?: () => void;
   userRole?: string;
   customPages: CustomPageNav[];
+  brandName?: string;
 }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
@@ -172,7 +174,7 @@ function NavContent({
           <Zap className="h-4 w-4 text-primary" />
         </div>
         <span className="font-semibold text-sm tracking-tight">
-          Agent Bizi
+          {brandName || "Agent Bizi"}
         </span>
       </Link>
 
@@ -255,7 +257,7 @@ function NavContent({
   );
 }
 
-export function Nav({ userRole }: { userRole?: string }) {
+export function Nav({ userRole, brandName }: { userRole?: string; brandName?: string }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [customPages, setCustomPages] = useState<CustomPageNav[]>([]);
 
@@ -270,7 +272,7 @@ export function Nav({ userRole }: { userRole?: string }) {
     <>
       {/* Desktop sidebar */}
       <aside className="hidden md:flex fixed inset-y-0 left-0 z-40 w-56 flex-col border-r border-sidebar-border bg-sidebar">
-        <NavContent userRole={userRole} customPages={customPages} />
+        <NavContent userRole={userRole} customPages={customPages} brandName={brandName} />
       </aside>
 
       {/* Mobile header bar */}
@@ -286,7 +288,7 @@ export function Nav({ userRole }: { userRole?: string }) {
             <Zap className="h-3.5 w-3.5 text-primary" />
           </div>
           <span className="font-semibold text-sm tracking-tight">
-            Agent Bizi
+            {brandName || "Agent Bizi"}
           </span>
         </Link>
       </header>
@@ -311,6 +313,7 @@ export function Nav({ userRole }: { userRole?: string }) {
               onNavigate={() => setMobileOpen(false)}
               userRole={userRole}
               customPages={customPages}
+              brandName={brandName}
             />
           </aside>
         </div>

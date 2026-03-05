@@ -71,6 +71,7 @@ export default function TenantDetailPage() {
     active: true,
     billingStatus: "trial",
     billingNote: "",
+    brandName: "",
   });
   const AI_SLOT_LABELS = ["Primary", "Backup 1", "Backup 2"];
   const [aiKeys, setAiKeys] = useState<AiKeySlot[]>(
@@ -85,12 +86,14 @@ export default function TenantDetailPage() {
       .then((data) => {
         if (data.error) return;
         setTenant(data);
+        const extra = data.extra as Record<string, unknown> | null;
         setForm({
           companyName: data.companyName || "",
           plan: data.plan || "standard",
           active: data.active ?? true,
           billingStatus: data.billingStatus || "trial",
           billingNote: data.billingNote || "",
+          brandName: (extra?.brandName as string) || "",
         });
         if (data.aiApiKeys) {
           setAiKeys(AI_SLOT_LABELS.map((defaultLabel, i) => ({
@@ -106,10 +109,11 @@ export default function TenantDetailPage() {
 
   async function handleSave() {
     setSaving(true);
+    const { brandName: bn, ...rest } = form;
     await fetch(`/api/superadmin/tenants/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify({ ...rest, brandName: bn || undefined }),
     });
     setSaving(false);
   }
@@ -301,6 +305,19 @@ export default function TenantDetailPage() {
             <option value="enterprise">Enterprise</option>
           </select>
         </div>
+        {form.plan === "enterprise" && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Brand Name</label>
+            <Input
+              value={form.brandName}
+              onChange={(e) => setForm({ ...form, brandName: e.target.value })}
+              placeholder="Custom app name (default: Agent Bizi)"
+            />
+            <p className="text-xs text-muted-foreground">
+              Displayed in the sidebar navigation instead of &quot;Agent Bizi&quot;.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Billing */}

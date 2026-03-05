@@ -10,6 +10,7 @@ export default function NewTenantPage() {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [plan, setPlan] = useState("standard");
+  const [brandName, setBrandName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -23,7 +24,7 @@ export default function NewTenantPage() {
       const res = await fetch("/api/superadmin/tenants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, adminEmail, adminPassword, plan }),
+        body: JSON.stringify({ name, adminEmail, adminPassword, plan, brandName: brandName || undefined }),
       });
 
       const data = await res.json();
@@ -89,6 +90,20 @@ export default function NewTenantPage() {
             <option value="enterprise">Enterprise</option>
           </select>
         </div>
+
+        {plan === "enterprise" && (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Brand Name (shown in sidebar)</label>
+            <Input
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              placeholder="Leave empty to use 'Agent Bizi'"
+            />
+            <p className="text-xs text-muted-foreground">
+              Enterprise tenants can have a custom app name displayed in the navigation.
+            </p>
+          </div>
+        )}
 
         {error && (
           <p className="text-sm text-destructive">{error}</p>

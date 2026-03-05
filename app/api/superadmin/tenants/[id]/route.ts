@@ -107,24 +107,36 @@ export async function PUT(
     if (key in body) data[key] = body[key];
   }
 
-  // Handle AI API keys update
-  if (body.aiApiKeys !== undefined) {
+  // Handle extra JSON fields (brandName, aiApiKeys)
+  if (body.brandName !== undefined || body.aiApiKeys !== undefined) {
     const tenant = await prisma.tenant.findUnique({
       where: { id },
       select: { extra: true },
     });
     const existingExtra = (tenant?.extra as Record<string, unknown>) || {};
-    const existingKeys = (existingExtra.aiApiKeys as { label: string; token: string }[]) || [];
 
-    // If a token contains "..." or "****", keep existing value
-    const mergedKeys = (body.aiApiKeys as { label: string; token: string }[]).map((k, i) => {
-      if (k.token.includes("...") || k.token === "****") {
-        return { label: k.label, token: existingKeys[i]?.token || "" };
+    // Brand name
+    if (body.brandName !== undefined) {
+      if (body.brandName) {
+        existingExtra.brandName = body.brandName.trim();
+      } else {
+        delete existingExtra.brandName;
       }
-      return { label: k.label, token: k.token };
-    });
+    }
 
-    data.extra = { ...existingExtra, aiApiKeys: mergedKeys };
+    // AI API keys
+    if (body.aiApiKeys !== undefined) {
+      const existingKeys = (existingExtra.aiApiKeys as { label: string; token: string }[]) || [];
+      const mergedKeys = (body.aiApiKeys as { label: string; token: string }[]).map((k, i) => {
+        if (k.token.includes("...") || k.token === "****") {
+          return { label: k.label, token: existingKeys[i]?.token || "" };
+        }
+        return { label: k.label, token: k.token };
+      });
+      existingExtra.aiApiKeys = mergedKeys;
+    }
+
+    data.extra = existingExtra;
   }
 
   try {

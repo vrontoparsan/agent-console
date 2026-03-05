@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   const session = await requireSuperadmin();
   if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { name, companyName, adminEmail, adminPassword, plan } = await req.json();
+  const { name, companyName, adminEmail, adminPassword, plan, brandName } = await req.json();
 
   if (!name || !adminEmail || !adminPassword) {
     return NextResponse.json(
@@ -76,12 +76,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
+      const extra = brandName ? { brandName: brandName.trim() } : undefined;
       const tenant = await tx.tenant.create({
         data: {
           name: name.trim(),
           slug,
           companyName: (companyName || name).trim(),
           plan: plan || "standard",
+          extra: extra || undefined,
         },
       });
 
