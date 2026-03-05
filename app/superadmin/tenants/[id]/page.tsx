@@ -295,6 +295,17 @@ export default function TenantDetailPage() {
           />
         </div>
         <div className="space-y-2">
+          <label className="text-sm font-medium">App Name</label>
+          <Input
+            value={form.brandName}
+            onChange={(e) => setForm({ ...form, brandName: e.target.value })}
+            placeholder="Agent Bizi"
+          />
+          <p className="text-xs text-muted-foreground">
+            Custom name displayed in sidebar navigation. Leave empty for default &quot;Agent Bizi&quot;.
+          </p>
+        </div>
+        <div className="space-y-2">
           <label className="text-sm font-medium">Plan</label>
           <select
             value={form.plan}
@@ -305,19 +316,6 @@ export default function TenantDetailPage() {
             <option value="enterprise">Enterprise</option>
           </select>
         </div>
-        {form.plan === "enterprise" && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Brand Name</label>
-            <Input
-              value={form.brandName}
-              onChange={(e) => setForm({ ...form, brandName: e.target.value })}
-              placeholder="Custom app name (default: Agent Bizi)"
-            />
-            <p className="text-xs text-muted-foreground">
-              Displayed in the sidebar navigation instead of &quot;Agent Bizi&quot;.
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Billing */}

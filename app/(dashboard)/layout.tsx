@@ -12,17 +12,15 @@ export default async function DashboardLayout({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  // Load brand name for enterprise tenants
+  // Load custom brand name for tenant
   let brandName: string | undefined;
   if (session.user.tenantId) {
     const tenant = await prisma.tenant.findUnique({
       where: { id: session.user.tenantId },
-      select: { plan: true, extra: true },
+      select: { extra: true },
     });
-    if (tenant?.plan === "enterprise") {
-      const extra = tenant.extra as Record<string, unknown> | null;
-      if (extra?.brandName) brandName = extra.brandName as string;
-    }
+    const extra = tenant?.extra as Record<string, unknown> | null;
+    if (extra?.brandName) brandName = extra.brandName as string;
   }
 
   return (
